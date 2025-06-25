@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple
 import cmath
+import math
 
 @dataclass
 class Quadratic_Formula:
@@ -14,3 +15,11 @@ class Quadratic_Formula:
         r2 = (-self.b - d) / (2*self.a)
         return r1, r2
 
+
+@dataclass
+class Pythagorean_Theorem:
+    a: float
+    b: float
+
+    def solve(self) -> float:
+        return math.sqrt(self.a**2 + self.b**2)
