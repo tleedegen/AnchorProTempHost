@@ -266,7 +266,7 @@ if not sample_df.empty:
     x = sample_df.loc[1, "X"]
     y = sample_df.loc[1, "Y"]
     vx = sample_df.loc[1, "Vx"]
-    py_th = Pythagorean_Theorem(x, y)
+    py_th = Pythagorean_Theorem(x, y).solve()
 
     st.markdown(r"""
 In a right-angled triangle, the Pythagorean Theorem states:
