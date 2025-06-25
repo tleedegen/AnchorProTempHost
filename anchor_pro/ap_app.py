@@ -2,7 +2,6 @@ import numpy as np
 from pathlib import Path
 import streamlit as st
 import pandas as pd
-from matplotlib import pyplot as plt
 from scripts.anchor_pro_test_formulas import Quadratic_Formula
 
 st.set_page_config(layout="wide")
