@@ -2,7 +2,7 @@ import numpy as np
 from pathlib import Path
 import streamlit as st
 import pandas as pd
-from scripts.anchor_pro_test_formulas import Quadratic_Formula
+from scripts.anchor_pro_test_formulas import *
 
 st.set_page_config(layout="wide")
 
@@ -226,6 +226,21 @@ with main_column2:
     st.line_chart(sample_df)
 
 st.header("All Project Designs")
+
+st.markdown(r"""
+To solve the quadratic equation:
+
+$$
+ax^2 + bx + c = 0
+$$
+
+We use the quadratic formula:
+
+$$
+x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+$$
+""")
+
 if st.session_state["data_column"] != []:
     project_design_table_order = ["base_material", "deck_installation_location",
                                 "hole_diameter_of_fastened_part", "anchor_product_mode",
@@ -246,3 +261,23 @@ if not sample_df.empty:
 
     quadratic_formula_result_1, quadratic_formula_result_2 = qf.solve()
     st.write(f"Quadratic Equation Results! {quadratic_formula_result_1} {quadratic_formula_result_2}")
+
+if not sample_df.empty:
+    x = sample_df.loc[1, "X"]
+    y = sample_df.loc[1, "Y"]
+    vx = sample_df.loc[1, "Vx"]
+    py_th = Pythagorean_Theorem(x, y)
+
+    st.markdown(r"""
+In a right-angled triangle, the Pythagorean Theorem states:
+
+$$
+a^2 + b^2 = c^2
+$$
+
+Where:
+- \(a\) and \(b\) are the lengths of the legs,
+- \(c\) is the length of the hypotenuse.
+""")
+    pythagorean_theorem_result = py_th.solve()
+    st.write(f"Pythagorean Theorem Results! {pythagorean_theorem_result}")
