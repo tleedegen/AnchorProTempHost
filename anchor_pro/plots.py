@@ -1,5 +1,15 @@
 import matplotlib
+# Force a non-interactive backend
+matplotlib.use("agg")
+
 import matplotlib.pyplot as plt
+matplotlib.rcParams["text.usetex"] = False
+plt.rcParams.update({  # Use times font for latex annotations
+    'font.family': 'serif',
+    'font.serif': 'Times New Roman',
+    "text.usetex": False,
+})
+
 import matplotlib.patches as patches
 import matplotlib.lines as mlines
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
@@ -16,14 +26,6 @@ import uuid
 import shutil
 import os
 
-# Force a non-interactive backend
-matplotlib.use("agg")
-matplotlib.rcParams["text.usetex"] = False
-plt.rcParams.update({  # Use times font for latex annotations
-    'font.family': 'serif',
-    'font.serif': 'Times New Roman',
-    "text.usetex": False,
-})
 
 TEMP_DIR = make_temp_dir()
 
@@ -419,7 +421,7 @@ def equipment_plan_view(equipment_obj):
         '', xy=(-Bx / 2, y_offset), xytext=(Bx / 2, y_offset),
         arrowprops=dict(arrowstyle='<->', color='black')
     )
-    ax_plan.text(0, y_offset - 0.2, f'$B_x$ = {Bx}', ha='center', va='top')
+    ax_plan.text(0, y_offset - 0.2, f'$B_x$ = {Bx:.2f}', ha='center', va='top')
 
     # Dimension line: vertical (By)
     x_offset = -Bx / 2 - 1.0  # to the left of the bounding box
@@ -427,7 +429,7 @@ def equipment_plan_view(equipment_obj):
         '', xy=(x_offset, -By / 2), xytext=(x_offset, By / 2),
         arrowprops=dict(arrowstyle='<->', color='black')
     )
-    ax_plan.text(x_offset - 0.2, 0, f'$B_y$ = {By}', ha='right', va='center', rotation='vertical')
+    ax_plan.text(x_offset - 0.2, 0, f'$B_y$ = {By:.2f}', ha='right', va='center', rotation='vertical')
 
     # Set equal aspect ratio
     ax_plan.spines['top'].set_visible(False)
@@ -477,7 +479,7 @@ def equipment_elevation_view(equipment_obj):
         '', xy=(-Bx / 2, y_offset), xytext=(Bx / 2, y_offset),
         arrowprops=dict(arrowstyle='<->', color='black')
     )
-    ax_elev.text(0, y_offset - .1, f'$B_x$ = {Bx}', ha='center', va='top')
+    ax_elev.text(0, y_offset - .1, f'$B_x$ = {Bx:.2f}', ha='center', va='top')
 
     # Dimension line: vertical (H) on left
     x_offset_left = -Bx / 2 - 1.0
@@ -485,7 +487,7 @@ def equipment_elevation_view(equipment_obj):
         '', xy=(x_offset_left, 0), xytext=(x_offset_left, H),
         arrowprops=dict(arrowstyle='<->', color='black')
     )
-    ax_elev.text(x_offset_left - 0.2, H / 2, f'$H$ = {H}', ha='right', va='center', rotation='vertical')
+    ax_elev.text(x_offset_left - 0.2, H / 2, f'$H$ = {H:.2f}', ha='right', va='center', rotation='vertical')
 
     # Dimension line: vertical (zCG) on right
     x_offset_right = Bx / 2 + 1.0
@@ -922,7 +924,7 @@ def _displaced_shape(model, sol, theta_z, sf=None, width=2.75):
     fv = model.Fv_max if model.installation_type in ['Wall Mounted', 'Suspended'] else model.Fv_min
     max_arrow_length = (model.Bx + model.By) / 2
     fh_arrow_length = model.Fh * max_arrow_length / max(abs(model.Fh), abs(fv))
-    fv_arrow_length = model.Fv_min * max_arrow_length / max(abs(model.Fh), abs(fv))
+    fv_arrow_length = fv * max_arrow_length / max(abs(model.Fh), abs(fv))
 
     ax.quiver(model.ex, model.ey, model.zCG,
               0, 0, fv_arrow_length,
@@ -1158,8 +1160,8 @@ def anchor_vs_theta_OLD(equipment_obj):
 def anchor_tension_shear_interaction(_, anchors_obj, __):
     dcr_n = anchors_obj.DCR_N
     dcr_v = anchors_obj.DCR_V
-    width = 2.75
-    height = 2.75
+    width = 2.5
+    height = 2.5
     margin = 0.75
 
     wratio = (width - margin) / width
@@ -1541,13 +1543,13 @@ def _anchor_diagram_vtk(anchors,
         y1t = y2t = y3t = y4t = y1b = y2b = y3b = y4b = None
 
     xmin = min(
-        [v for v in [a.xy_group[:, 0].min() - min(a.cax_neg, 3 * a.t_slab), x1t, x2t, x3t, x4t] if v is not None])
+        [v for v in [a.xy_group[:, 0].min() - min(a.cax_neg, 1.5 * a.t_slab), x1t, x2t, x3t, x4t] if v is not None])
     xmax = max(
-        [v for v in [a.xy_group[:, 0].max() + min(a.cax_pos, 3 * a.t_slab), x1t, x2t, x3t, x4t] if v is not None])
+        [v for v in [a.xy_group[:, 0].max() + min(a.cax_pos, 1.5 * a.t_slab), x1t, x2t, x3t, x4t] if v is not None])
     ymin = min(
-        [v for v in [a.xy_group[:, 1].min() - min(a.cay_neg, 3 * a.t_slab), y1t, y2t, y3t, y4t] if v is not None])
+        [v for v in [a.xy_group[:, 1].min() - min(a.cay_neg, 1.5 * a.t_slab), y1t, y2t, y3t, y4t] if v is not None])
     ymax = max(
-        [v for v in [a.xy_group[:, 1].max() + min(a.cay_pos, 3 * a.t_slab), y1t, y2t, y3t, y4t] if v is not None])
+        [v for v in [a.xy_group[:, 1].max() + min(a.cay_pos, 1.5 * a.t_slab), y1t, y2t, y3t, y4t] if v is not None])
     zmax = 0
     zmin = -a.t_slab
 
@@ -1839,7 +1841,8 @@ def _anchor_diagram_vtk(anchors,
     bounds = np.array(renderer.ComputeVisiblePropBounds())  # [-x, +x, -y, +y, -z, +z]
     r = 1.1 * max(bounds[1::2] - bounds[::2]) * 3.5
     cen = (bounds[1::2] + bounds[::2]) * 0.5
-    cen[2] = -a.t_slab
+    cen[2] = bounds[4] - (bounds[5] - bounds[4])
+    # cen[2] = -a.t_slab
 
     # Convert azimuth and elevation angles to radians for trigonometric functions
     azimuth_rad = math.radians(azimuth)
@@ -1855,10 +1858,9 @@ def _anchor_diagram_vtk(anchors,
     camera.SetPosition(camera_x, camera_y, camera_z)
     camera.SetFocalPoint(cen[0], cen[1], cen[2])
     camera.SetViewUp(0, 0, 1)
-    camera.SetViewAngle(15)
+    camera.SetViewAngle(10)
     renderer.SetActiveCamera(camera)
     renderer.ResetCamera()  # Adjusts the camera to include all visible elements
-
     render_window = vtk.vtkRenderWindow()
     figw = 2.5  # inches
     figh = 2.5  # inches
@@ -1898,8 +1900,8 @@ def anchor_spacing_criteria(item, anchors_obj, __):
     ca = anchors_obj.c_min  # minimum provided edge distance
     smin = anchors_obj.s_min
 
-    width = 2.75
-    height = 2.75
+    width = 2.25
+    height = 2.25
     margin = 0.75
 
     wratio = (width - margin) / width
@@ -1961,7 +1963,7 @@ def sms_hardware_attachment(_, attach_obj, __):
     anchor_forces = attach_obj.anchors_obj.anchor_forces
 
     width = 3
-    height = 3
+    height = 2.25
     margin = 0
 
     wratio = (width - margin) / width
@@ -2098,7 +2100,7 @@ def sms_hardware_attachment(_, attach_obj, __):
     else:
         ax.spines['left'].set_position(('data', 0))
         ax.spines['left'].set_zorder(0)
-    datalim = max(w + 6, h + 6)
+    datalim = max(np.ceil(1.1*w), np.ceil(1.1*h))
     ax.set_xlim(-datalim / 2, datalim / 2)
     ax.set_ylim(-datalim / 2, datalim / 2)
     ax.set_aspect('equal')
@@ -2114,7 +2116,7 @@ def wall_backing(_, backing_obj):
     anchor_forces = backing_obj.anchor_forces
 
     width = 3
-    height = 3
+    height = 2.25
     margin = 0
 
     wratio = (width - margin) / width
@@ -2185,7 +2187,7 @@ def wall_backing(_, backing_obj):
     else:
         ax.spines['left'].set_position(('data', 0))
         ax.spines['left'].set_zorder(0)
-    datalim = max(w + 12, h + 12)
+    datalim = max(np.ceil(1.1*w), np.ceil(1.1*h))
     ax.set_xlim(-datalim / 2, datalim / 2)
     ax.set_ylim(-datalim / 2, datalim / 2)
     ax.set_aspect('equal')

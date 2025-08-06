@@ -1,0 +1,13 @@
+#Python Virtual Enviornment
+.venv/
+
+#VSCode Settings
+.vscode/
+
+#Official Python Ignore Template
+#Byte-compiled
+__pycache__/
+#optimized
+*.py[cod]
+#DLL files
+*$py.class

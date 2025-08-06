@@ -2,11 +2,11 @@
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 import sys
-# import os
+import os
 import traceback
-# from datetime import datetime
-from anchor_pro.calculator import *
-# import config
+
+from anchor_pro.excel_interface import ExcelTablesImporter, ProjectController
+
 import cProfile
 import pstats
 import io
@@ -19,8 +19,8 @@ import time
 # import subprocess
 
 # Inputs from powershell
-excel_path = sys.argv[1]
-output_dir = sys.argv[2]
+# excel_path = sys.argv[1]
+# output_dir = sys.argv[2]
 
 # Manual Inputs for testing
 # excel_path = r"C:\Users\djmiller\OneDrive - Degenkolb Engineers\AnchorPro\Reference Files\AnchorPro Input.xlsm"
@@ -31,8 +31,11 @@ output_dir = sys.argv[2]
 # output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\NPC Demo"
 
 # User Testing
-# excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\Omid Testing\AnchorPro Input - v2.2.0 - KWLA - EQUIPMENT LIBRARY 1.xlsm"
-# output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\Omid Testing"
+# excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\Yuliy Testing\AnchorPro Input - v4.1.0.xlsm"
+# output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\Yuliy Testing"
+
+excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI\AnchorPro Input - HNI.xlsm"
+output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI"
 
 # Code Profiling Option
 profile_code = False
@@ -84,12 +87,13 @@ def main():
             controller = run_program(excel_path, output_dir)
 
         except Exception as e:
+            controller = None
             print("An error occurred:")
             traceback.print_exc()  # This will print the full traceback to both console and log file
         finally:
             print(f'Done. Elapsed time: {time.time() - start_time:.4f}')
+            # Reset stdout and stderr to their original values
 
-        # Reset stdout and stderr to their original values
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
         return controller
@@ -120,3 +124,5 @@ if __name__ == '__main__':
         profiler.dump_stats(os.path.join(output_dir, 'profile.txt'))
     else:
         controller = main()
+
+print('Program Finished')

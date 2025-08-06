@@ -1,20 +1,19 @@
-"""
-Convert data/raw/equipment.xlsx → data/processed/equipment.parquet
+"""Convert data/raw/equipment.xlsx → data/processed/equipment.parquet
 Run locally *or* in GitHub Actions.
 """
 from pathlib import Path
 import pandas as pd
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SOURCE  = Path("data/raw/anchors.xlsx")
-DESTINATION = Path("data/processed/anchors.parquet")
+ROOT = Path(__file__).resolve().parent.parent.parent
+SOURCE  = ROOT / "data" / "raw" / "anchors.xlsx" #Path("data/raw/anchors.xlsx")
+DESTINATION = ROOT / "data" / "processed" / "anchors.parquet"  #Path("data/processed/anchors.parquet")
 
 #Reading and cleaning data from excel sheet
 anchors_df = pd.read_excel(SOURCE,
                            sheet_name=0,
-                           header = 0,
-                           usecols = "A:J",
+                           header = 11,
+                           usecols = "B:DT",
                            thousands = ",",)
 
 # 1st column = anchor_id so we can reference them by name

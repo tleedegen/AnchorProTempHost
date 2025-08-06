@@ -418,7 +418,13 @@ class Utilities:
 
     @staticmethod
     def compute_backing_xy_points(s_or_num_horiz, s_or_num_vert, L_horiz, L_vert, x_offset, y_offset,
-                                  place_by_horiz='Spacing', place_by_vert='Spacing'):
+                                  place_by_horiz='Spacing', place_by_vert='Spacing', manual_x=None, manual_y=None):
+
+        if manual_x is None:
+            manual_x = []
+        if manual_y is None:
+            manual_y = []
+
 
         def get_step_and_number(place_by, spacing_or_number, L):
             if place_by == "Spacing":
@@ -435,13 +441,12 @@ class Utilities:
                     step = 0
             return step, int(num)
 
-        step_h, num_h = get_step_and_number(place_by_horiz, s_or_num_horiz, L_horiz)
-        step_v, num_v = get_step_and_number(place_by_vert, s_or_num_vert, L_vert)
-
         def get_anchor_coordinates(step, num, offset):
             pts = []
-
             pt = 0
+            if num == 0:
+                return pts
+
             if num % 2 != 0:
                 # For odd number of anchors, place one in the center
                 pts.append(0 + offset)
@@ -449,16 +454,32 @@ class Utilities:
             else:
                 pt += step / 2
 
-            while len(pts) < num_h:
+            while len(pts) < num:
                 pts.append(pt + offset)
                 pts.append(-pt + offset)
                 pt += step
             return pts
 
-        if num_h > 0 and num_v > 0:
+        num_h = 0
+        num_v = 0
+
+        if place_by_horiz == 'Manual':
+            x_pts = manual_x
+            num_h = len(manual_x)
+        else:
+            step_h, num_h = get_step_and_number(place_by_horiz, s_or_num_horiz, L_horiz)
             x_pts = get_anchor_coordinates(step_h, num_h, x_offset)
+
+        if place_by_vert == 'Manual':
+            y_pts = manual_y
+            num_v = len(manual_y)
+        else:
+            step_v, num_v = get_step_and_number(place_by_vert, s_or_num_vert, L_vert)
             y_pts = get_anchor_coordinates(step_v, num_v, y_offset)
 
+        if place_by_horiz=='Manual' and place_by_vert=='Manual':
+            return np.column_stack((manual_x,manual_y))
+        elif num_h > 0 and num_v > 0:
             num_points = num_h * num_v
             x_array = np.zeros(num_points)
             y_array = np.zeros(num_points)
@@ -469,7 +490,6 @@ class Utilities:
                     x_array[i] = x_pts[ix]
                     y_array[i] = y_pts[iy]
                     i += 1
-
             return np.column_stack((x_array, y_array))
         else:
             return np.empty((0, 2))

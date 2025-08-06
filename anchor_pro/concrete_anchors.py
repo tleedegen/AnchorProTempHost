@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
+from anchor_pattern_mixin import AnchorPatternMixin
 
-
-class ConcreteCMU:
+class ConcreteCMU(AnchorPatternMixin):
     # Adhesive Anchor Suffix Maps
     crack_conditions = {
         'Cracked': 'cr',
@@ -49,9 +49,9 @@ class ConcreteCMU:
         self.lw_factor_a = None
         self.lw_factor_bond_failure = None
         self.cracked_concrete = True
-        self.E_base = None
+        # self.Ec = None  # not used in calculations
         self.poisson = None
-        self.t_slab = np.Inf
+        self.t_slab = np.inf
         self.cx_neg = None  # Edge of concrete relative to bounding box (Bx and By)
         self.cx_pos = None
         self.cy_neg = None
@@ -72,6 +72,7 @@ class ConcreteCMU:
         self.groups_matrix = None  # b_ij = True if anchor i is in a group with anchor j
 
         # Governing Anchor Group Geometry
+        self.group_idx = None
         self.xy_group = None  # Coordinates of base_anchors in governing anchor group.
         self.n_anchor = None  # Number of base_anchors in governing group.
         self.centroid = None  # Centroid of governing group
@@ -344,13 +345,13 @@ class ConcreteCMU:
                                     'applicable': True,
                                     'function': None,
                                     'demand': 'Vu_xp_edge',
-                                    'capacity': 'Vcb_xp_edge',
+                                    'capacity': 'Vcb_xp_full',
                                     'phi': 'phi_cV'},
             'Shear Edge Breakout (X+)': {'mode': 'Shear',
                                          'applicable': True,
                                          'function': None,
                                          'demand': 'Vu_xp',
-                                         'capacity': 'Vcb_xp_full',
+                                         'capacity': 'Vcb_xp_edge',
                                          'phi': 'phi_cV'},
             'Shear Breakout (X-)': {'mode': 'Shear',
                                     'applicable': True,
@@ -419,6 +420,8 @@ class ConcreteCMU:
         for key in vars(self).keys():
             if key + '_' + base_or_wall in equipment_data.keys():
                 setattr(self, key, equipment_data.at[key + '_' + base_or_wall])
+            elif key in equipment_data.keys():
+                setattr(self, key, equipment_data.at[key])
 
         if equipment_data['weight_classification' + '_' + base_or_wall] == 'LWC':
             self.lw_factor_a = self.lw_factor * self.lw_adjustment
@@ -431,19 +434,15 @@ class ConcreteCMU:
         for attr_name in ['cx_neg', 'cx_pos', 'cy_neg', 'cy_pos']:
             ca_attr = getattr(self, attr_name)
             if ca_attr is None or np.isnan(ca_attr):
-                setattr(self, attr_name, np.Inf)
+                setattr(self, attr_name, np.inf)
 
         # Anchor Geometry
         if xy_anchors is not None:
             self.xy_anchors = np.array(xy_anchors)
 
         # Get Inter-Anchor Spacing
-        n = len(self.xy_anchors)
-        spacing_matrix = np.empty((n, n))
-        for i in range(n):
-            for j in range(n):
-                spacing_matrix[i, j] = np.linalg.norm(self.xy_anchors[j] - self.xy_anchors[i])
-        self.spacing_matrix = spacing_matrix
+        self.get_anchor_spacing_matrix()
+        
 
         # Global anchor edge distance and min spacing
         self.edge_ordinates = [min(self.xy_anchors[:, 0].min(), -0.5 * equipment_data['Bx']) - self.cx_neg,
@@ -502,6 +501,7 @@ class ConcreteCMU:
             'vyn': self.anchor_forces[idx_group, idx_theta_vyn, :]}
 
         # Set Anchor-group Coordinates
+        self.group_idx = np.where(idx_group)[0]
         self.xy_group = self.xy_anchors[self.groups_matrix[idx_anchor_t]]
         self.n_anchor = self.xy_group.shape[0]
         self.centroid = np.mean(self.xy_group, axis=0)
@@ -691,26 +691,6 @@ class ConcreteCMU:
         exp_var = '_'.join(['exp_bond', cracked, drill])
         self.exp_bond = anchor_data[exp_var]
 
-    def get_anchor_groups(self, radius):
-        boolean_matrix = self.spacing_matrix < radius
-        boolean_matrix = boolean_matrix.astype(int)  # Convert the boolean matrix to integer for matrix operations
-        groups_matrix = np.copy(boolean_matrix)
-
-        # Keep multiplying until there are no new connections found
-        while True:
-            new_matrix = groups_matrix @ boolean_matrix
-
-            # Ensure we don't exceed the boolean logic (1 is True, everything above 1 is still True)
-            new_matrix[new_matrix > 1] = 1
-
-            # Check if the matrix has changed
-            if np.array_equal(new_matrix, groups_matrix):
-                break
-            else:
-                groups_matrix = new_matrix
-
-        # Convert back to boolean
-        self.groups_matrix = groups_matrix.astype(bool)
 
     def check_anchor_spacing(self):
 
