@@ -40,32 +40,24 @@ def render_data_editor():
             help="X-coordinate of anchor",
             min_value=None,
             max_value=None,
-            step=0.25,
-            format="%.2f"
         ),
         "Y": st.column_config.NumberColumn(
             "Y (in)", 
             help="Y-coordinate of anchor",
             min_value=None,
             max_value=None,
-            step=0.25,
-            format="%.2f"
         ),
         "Vx": st.column_config.NumberColumn(
             "Vx (lbs)",
             help="Shear force in X direction",
             min_value=None,
-            max_value=None,
-            step=1.0,
-            format="%.1f"
+            max_value=None
         ),
         "Vy": st.column_config.NumberColumn(
             "Vy (lbs)",
-            help="Shear force in Y direction", 
+            help="Shear force in Y direction",
             min_value=None,
-            max_value=None,
-            step=1.0,
-            format="%.1f"
+            max_value=None
         ),
         "N": st.column_config.NumberColumn(
             "N (lbs)",
@@ -73,7 +65,6 @@ def render_data_editor():
             min_value=None,
             max_value=None,
             step=1.0,
-            format="%.1f"
         )
     }
     
@@ -84,18 +75,17 @@ def render_data_editor():
         num_rows="dynamic",
         use_container_width=True,
         key="anchor_editor",  # Different key to avoid conflicts
-        hide_index=False
     )
     
-    # Only update session state if data actually changed
-    if not edited_df.equals(st.session_state.anchor_data):
-        # Ensure data types are correct
-        if not edited_df.empty:
-            for col in ['X', 'Y', 'Vx', 'Vy', 'N']:
-                if col in edited_df.columns:
-                    edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0)
+    # # Only update session state if data actually changed
+    # if not edited_df.equals(st.session_state.anchor_data):
+    #     # Ensure data types are correct
+    #     if not edited_df.empty:
+    #         for col in ['X', 'Y', 'Vx', 'Vy', 'N']:
+    #             if col in edited_df.columns:
+    #                 edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0)
         
-        st.session_state.anchor_data = edited_df.copy()
+    #     st.session_state.anchor_data = edited_df.copy()
     
     # Use the current edited_df for all calculations and displays
     current_df = edited_df
