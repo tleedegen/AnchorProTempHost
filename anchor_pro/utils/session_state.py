@@ -16,7 +16,7 @@ def save_design_to_session(design_params: DesignParameters):
     # data_column: list = st.session_state.get('data_column', [])
     if "data_column" not in st.session_state:
         st.session_state["data_column"] = []
-    st.session_state['data_column'].append(Series(design_params.combined_dict))
+    st.session_state['data_column'].insert(0, Series(design_params.combined_dict))
     if st.session_state['data_column_counter'] >= 2:
         st.success("Design saved!")
 
