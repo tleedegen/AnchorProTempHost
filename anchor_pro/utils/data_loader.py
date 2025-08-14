@@ -165,17 +165,17 @@ def anchor_pro_concrete_data(session_state: dict) -> pd.Series:
     anchor_pro_series = pd.Series({k: session_state[k] for k in required_data})
     return anchor_pro_series
 
-def anchor_pro_set_data(session_state):
-    concrete_data = anchor_pro_concrete_data(session_state)
-    xy_anchors = anchor_pro_anchors(session_state["anchor_data"])
+def anchor_pro_set_data(session_state_data_column: list[dict]):
+    concrete_data = anchor_pro_concrete_data(session_state_data_column[0])
+    xy_anchors = anchor_pro_anchors(session_state_data_column[0]["anchor_geometry_df"])
     df = load_anchor_data()
-    anchor_id = session_state["specified_product"]
+    anchor_id = session_state_data_column[0]["specified_product"]
     anchor_data = df[df['anchor_id']==anchor_id].iloc[0]
 
     model = ConcreteAnchors()
     model.set_data(concrete_data, xy_anchors)
     model.set_mechanical_anchor_properties(anchor_data)
-    model.anchor_forces = anchor_pro_forces(st.session_state["anchor_data"])
+    model.anchor_forces = anchor_pro_forces(st.session_state['data_column'][0]['anchor_geometry_df'])
     model.check_anchor_spacing()
     model.get_governing_anchor_group()
     model.check_anchor_capacities()
@@ -185,6 +185,8 @@ def anchor_pro_set_data(session_state):
     st.write(model.results)
     
     st.session_state['analysis_results_df'] = model.results
+
+
 # Export functions for easy import
 __all__ = [
     'load_anchor_data',

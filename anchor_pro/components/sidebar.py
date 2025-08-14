@@ -1,6 +1,6 @@
 import streamlit as st
 from pathlib import Path
-from models.design_data import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
+from models.anchor_design_data import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
 from utils.data_loader import load_anchor_data, get_manufacturers, get_anchor_products, get_product_groups
 from utils.session_state import save_design_to_session
 
@@ -142,18 +142,19 @@ def render_substrate_section() -> SubstrateParams:
     #     key = substrate_params.SUBSTRATE_FIELDS["face_side"]["key"])
 
     return SubstrateParams(
-        base_material = base_material,
-        weight_class = weight_class,
+        fc = base_material,
+        weight_classification_base = weight_class,
         poisson = poisson,
-        concrete_thickness = concrete_thickness,
+        t_slab = concrete_thickness,
         deck_location = deck_location,
         cracked_concrete = cracked_concrete,
-        edge_dist_x_neg = edge_dist_x_neg,
-        edge_dist_x_pos = edge_dist_x_pos,
-        edge_dist_y_neg = edge_dist_y_neg,
-        edge_dist_y_pos = edge_dist_y_pos,
-        concrete_profile = concrete_profile,
-        anchor_position = anchor_position
+        cx_neg = edge_dist_x_neg,
+        cx_pos = edge_dist_x_pos,
+        cy_neg = edge_dist_y_neg,
+        cy_pos = edge_dist_y_pos,
+        profile = concrete_profile,
+        anchor_position = anchor_position,
+        lw_factor= st.session_state['lw_factor']
         # grouted = grouted == "Yes" if grouted else None,
         # hole_diameter = hole_diameter,
         # face_side = face_side,
@@ -222,62 +223,60 @@ def render_anchor_loading_section() -> LoadingParams:
         key="anchor_load_input_location"
     )
     
-    # Create a more organized grid for load inputs
-    st.markdown("**Forces:**")
-    col1, col2, col3 = st.columns(3)
+    # st.markdown("**Forces:**")
+    # col1, col2, col3 = st.columns(3)
     
-    with col1:
-        vx = st.number_input(
-            "Vx (lbs)",
-            value=None,
-            placeholder="0.0",
-            key="vx"
-        )
+    # with col1:
+    #     vx = st.number_input(
+    #         "Vx (lbs)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="vx"
+    #     )
     
-    with col2:
-        vy = st.number_input(
-            "Vy (lbs)",
-            value=None,
-            placeholder="0.0",
-            key="vy"
-        )
+    # with col2:
+    #     vy = st.number_input(
+    #         "Vy (lbs)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="vy"
+    #     )
     
-    with col3:
-        n = st.number_input(
-            "N (lbs)",
-            value=None,
-            placeholder="0.0",
-            key="n"
-        )
+    # with col3:
+    #     n = st.number_input(
+    #         "N (lbs)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="n"
+    #     )
     
-    st.markdown("**Moments:**")
-    col1, col2, col3 = st.columns(3)
+    # st.markdown("**Moments:**")
+    # col1, col2, col3 = st.columns(3)
     
-    with col1:
-        mx = st.number_input(
-            "Mx (lb-in)",
-            value=None,
-            placeholder="0.0",
-            key="mx"
-        )
+    # with col1:
+    #     mx = st.number_input(
+    #         "Mx (lb-in)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="mx"
+    #     )
     
-    with col2:
-        my = st.number_input(
-            "My (lb-in)",
-            value=None,
-            placeholder="0.0",
-            key="my"
-        )
+    # with col2:
+    #     my = st.number_input(
+    #         "My (lb-in)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="my"
+    #     )
     
-    with col3:
-        t = st.number_input(
-            "T (lb-in)",
-            value=None,
-            placeholder="0.0",
-            key="t"
-        )
-    
-    # Options row
+    # with col3:
+    #     t = st.number_input(
+    #         "T (lb-in)",
+    #         value=None,
+    #         placeholder="0.0",
+    #         key="t"
+    #     )
+
     st.markdown("**Options:**")
     col1, col2 = st.columns(2)
     
@@ -301,12 +300,12 @@ def render_anchor_loading_section() -> LoadingParams:
     
     return LoadingParams(
         location=load_location,
-        vx=vx or 0.0,
-        vy=vy or 0.0,
-        n=n or 0.0,
-        mx=mx or 0.0,
-        my=my or 0.0,
-        t=t or 0.0,
+        # vx=vx or 0.0,
+        # vy=vy or 0.0,
+        # n=n or 0.0,
+        # mx=mx or 0.0,
+        # my=my or 0.0,
+        # t=t or 0.0,
         seismic=seismic,
         phi_override=phi_override
     )

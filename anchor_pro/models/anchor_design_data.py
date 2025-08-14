@@ -4,20 +4,22 @@ from typing import Dict, Optional, List, ClassVar
 import streamlit as st
 from utils.data_loader import load_anchor_data, get_manufacturers, get_anchor_products, get_product_groups
 import pandas as pd
+import streamlit as st
 
 @dataclass
 class SubstrateParams:
     """Stores substrate parameters for user editing"""
-    base_material: Optional[str] = None
-    weight_class: Optional[str] = None
+    fc: Optional[str] = None
+    weight_classification_base: Optional[str] = None
     poisson: Optional[float] = None
-    concrete_thickness: Optional[float] = None
-    edge_dist_x_neg: Optional[float] = None
-    edge_dist_x_pos: Optional[float] = None
-    edge_dist_y_neg: Optional[float] = None
-    edge_dist_y_pos: Optional[float] = None
-    concrete_profile: Optional[str] = None
+    t_slab: Optional[float] = None
+    cx_neg: Optional[float] = None
+    cx_pos: Optional[float] = None
+    cy_neg: Optional[float] = None
+    cy_pos: Optional[float] = None
+    profile: Optional[str] = None
     anchor_position: Optional[str] = None
+    lw_factor: Optional[float] = None
 
     grouted: Optional[bool] = None
     deck_location: Optional[str] = None
@@ -190,23 +192,43 @@ class InstallationParams:
     moisture_condition: Optional[str] = None
 
 @dataclass
+class AnchorGeometry:
+    """Stores anchor geometry data"""
+    # Default bounding box dimensions
+    bx: float = 10
+    by: float = 10
+    # Lists to store anchor geometry points
+    anchor_geometry_df: Optional[pd.DataFrame] = None
+    x: list[float] = field(default_factory=list)
+    y: list[float] = field(default_factory=list)
+    vx: list[float] = field(default_factory=list)
+    vy: list[float] = field(default_factory=list)
+    n: list[float] = field(default_factory=list)
+    centroid: list[tuple[float, float]] = field(default_factory=list)
+    anchor_count: Optional[int] = 0
+
+
+
+@dataclass
 class DesignParameters:
     """Stores design editor data used in the sidebar"""
     substrate: SubstrateParams = field(default_factory = SubstrateParams)
     anchor_product: AnchorProduct = field(default_factory = AnchorProduct)
     loading: LoadingParams = field(default_factory = LoadingParams)
     installation: InstallationParams = field(default_factory = InstallationParams)
+    anchor_geometry: AnchorGeometry = field(default_factory = AnchorGeometry)
     parameters: list = field(default_factory = list)
     combined_dict: Optional[dict] = None
 
 
     def collect_parameter_names(self) -> None:
-        """Collects all attributes that can be modified by user within the sidebar"""
+        """Collects all attributes that will be used input to anchor pro"""
         self.parameters = (
             [key.name for key in fields(self.substrate)] +
             [key.name for key in fields(self.anchor_product)] +
             [key.name for key in fields(self.loading)] +
-            [key.name for key in fields(self.installation)])
+            [key.name for key in fields(self.installation)] +
+            [key.name for key in fields(self.anchor_geometry)])
 
     def parameters_to_dict(self) -> None:
         """Converts editor attributes to dict"""
@@ -215,9 +237,9 @@ class DesignParameters:
         anchor_product_dict = asdict(self.anchor_product)
         loading_dict = asdict(self.loading)
         installation_dict = asdict(self.installation)
+        anchor_geometry_dict = asdict(self.anchor_geometry)
 
-        self.combined_dict = substrate_dict | anchor_product_dict | loading_dict | installation_dict
-
+        self.combined_dict = substrate_dict | anchor_product_dict | loading_dict | installation_dict | anchor_geometry_dict
 
     def __post_init__(self):
         self.collect_parameter_names()

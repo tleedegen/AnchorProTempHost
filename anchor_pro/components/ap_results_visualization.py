@@ -409,11 +409,11 @@ def render_data_table(df: pd.DataFrame):
         except:
             return ''
     
-    styled_df = df_display.style.applymap(
+    styled_df = df_display.style.map(
         highlight_utilization, 
         subset=['Utilization']
     )
-    
+
     st.dataframe(
         styled_df,
         use_container_width=True,
