@@ -11,3 +11,4 @@ __pycache__/
 *.py[cod]
 #DLL files
 *$py.class
+.streamlit/secrets.toml

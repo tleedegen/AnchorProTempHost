@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from models.anchor_design_data import SubstrateParams
-from utils.session_state import update_active_anchor_geometry_session_state
+from utils.session_state import update_active_data_column
 
 
 
@@ -26,7 +26,7 @@ def render_data_editor():
         value = substrate_param.SUBSTRATE_FIELDS["Bx"]["value"],
         key = substrate_param.SUBSTRATE_FIELDS["Bx"]["key"],
     )
-    update_active_anchor_geometry_session_state('Bx', bx)
+    update_active_data_column('Bx', bx)
 
     by = st.number_input(
         label = substrate_param.SUBSTRATE_FIELDS["By"]["label"],
@@ -34,7 +34,7 @@ def render_data_editor():
         value = substrate_param.SUBSTRATE_FIELDS["By"]["value"],
         key = substrate_param.SUBSTRATE_FIELDS["By"]["key"],
     )
-    update_active_anchor_geometry_session_state('By', by)
+    update_active_data_column('By', by)
     st.subheader("Anchor Geometry & Forces")
     
     # Create column configuration for better data entry
@@ -80,7 +80,8 @@ def render_data_editor():
         key="anchor_editor",  # Different key to avoid conflicts
     )
     # Update session state with the edited dataframe
-    st.session_state['data_column'][0]['anchor_geometry_df'] = anchor_geometry_df
+    update_active_data_column('anchor_geometry_df', anchor_geometry_df)
+    # st.session_state['data_column'][0]['anchor_geometry_df'] = anchor_geometry_df
 
     #TODO: Get Centroid from concrete_anchors
     # Display summary information

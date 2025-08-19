@@ -156,16 +156,16 @@ def anchor_pro_forces(df: pd.DataFrame):
     anchor_pro_force = df[['N', 'Vx', 'Vy']].to_numpy()[:, np.newaxis, :]
     return anchor_pro_force
 
-def anchor_pro_concrete_data(session_state: dict) -> pd.Series:
+def anchor_pro_concrete_data(session_state_data_column: pd.Series) -> pd.Series:
     required_data: tuple = (
         'Bx', 'By', 'fc', 'lw_factor', 'cracked_concrete', 'poisson', 't_slab',
         'cx_neg', 'cx_pos', 'cy_neg', 'cy_pos', 'profile', 'anchor_position',
         'weight_classification_base'
     )
-    anchor_pro_series = pd.Series({k: session_state[k] for k in required_data})
+    anchor_pro_series = pd.Series({k: session_state_data_column[k] for k in required_data})
     return anchor_pro_series
 
-def anchor_pro_set_data(session_state_data_column: list[dict]):
+def anchor_pro_set_data(session_state_data_column: list[pd.Series]):
     concrete_data = anchor_pro_concrete_data(session_state_data_column[0])
     xy_anchors = anchor_pro_anchors(session_state_data_column[0]["anchor_geometry_df"])
     df = load_anchor_data()

@@ -9,23 +9,22 @@ import streamlit as st
 @dataclass
 class SubstrateParams:
     """Stores substrate parameters for user editing"""
-    fc: Optional[str] = None
-    weight_classification_base: Optional[str] = None
-    poisson: Optional[float] = None
-    t_slab: Optional[float] = None
-    cx_neg: Optional[float] = None
-    cx_pos: Optional[float] = None
-    cy_neg: Optional[float] = None
-    cy_pos: Optional[float] = None
-    profile: Optional[str] = None
-    anchor_position: Optional[str] = None
-    lw_factor: Optional[float] = None
-
-    grouted: Optional[bool] = None
-    deck_location: Optional[str] = None
-    hole_diameter: Optional[float] = None
-    face_side: Optional[str] = None
-    cracked_concrete: bool = True
+    fc: Optional[int] = 2000
+    weight_classification_base: Optional[str] = 'NWC'
+    poisson: Optional[float] = 0.2
+    t_slab: Optional[float] = 12.0
+    cx_neg: Optional[float] = 5.0
+    cx_pos: Optional[float] = 5.0
+    cy_neg: Optional[float] = 5.0
+    cy_pos: Optional[float] = 5.0
+    profile: Optional[str] = 'Slab'
+    anchor_position: Optional[str] = 'top'
+    grouted: Optional[str] = 'Grouted'
+    deck_location: Optional[str] = 'Top'
+    hole_diameter: Optional[float] = 3.0
+    face_side: Optional[str] = 'Face'
+    cracked_concrete: str = 'Cracked'
+    lw_factor: Optional[float] = 1.0
     #Default Concrete Parameter
 
 
@@ -124,11 +123,12 @@ class SubstrateParams:
             "label": "Hole Diameter of Fastened Part",
             "min_value": 0.0,
             "placeholder": "Input...",
+            'value': 1.0,
             "key": "hole_diameter"
         },
         "face_side":{
             "label": "Face, Side",
-            "options": (None, "Face", "Side", "Top"),
+            "options": ("Face", "Side", "Top"),
             "placeholder": "Select...",
             "key": "face_side"
         }
@@ -151,7 +151,7 @@ class AnchorProduct:
     def __post_init__(self):
         self.anchor_manufacturer: tuple = get_manufacturers(self.anchor_parameters)
 
-        self.SUBSTRATE_FIELDS = {
+        self.ST_ANCHOR_FIELDS = {
             "manufacturer": {
                 "label": "Manufacturer",
                 "options": self.anchor_manufacturer,
@@ -171,16 +171,36 @@ class AnchorProduct:
 @dataclass
 class LoadingParams:
     """Stores loading parameters for user editing"""
-    location: Optional[str] = None
-    vx: float = 0.0
-    vy: float = 0.0
-    n: float = 0.0
+    location: Optional[str] = 'Individual Anchors'
     mx: float = 0.0
     my: float = 0.0
     t: float = 0.0
-    seismic: bool = False
+    seismic: bool = True
     phi_override: bool = False
 
+    ST_LOADING_FIELDS = {
+        "load_location": {
+            "label": "Anchor Load Input Location",
+            "options": ("Individual Anchors", "Group Origin"),
+            "placeholder": "Select...",
+            'index': 0,
+            "key": "anchor_load_input_location"
+        },
+        "seismic": {
+                "label": "Seismic Loading",
+                "options": (True, False),
+                "placeholder": "Select...",
+                'index': 0,
+                "key": "seismic_loading"
+            },
+        "phi_override": {
+            "label": "Phi Override",
+            "placeholder": "Select...",
+            "key": "phi_override",
+            'options': (True, False),
+            'index': 1
+        }
+    }
 @dataclass
 class InstallationParams:
     """Stores installation parameters for user editing"""
@@ -195,8 +215,8 @@ class InstallationParams:
 class AnchorGeometry:
     """Stores anchor geometry data"""
     # Default bounding box dimensions
-    bx: float = 10
-    by: float = 10
+    bx: float = 10.0
+    by: float = 10.0
     # Lists to store anchor geometry points
     anchor_geometry_df: Optional[pd.DataFrame] = None
     x: list[float] = field(default_factory=list)
