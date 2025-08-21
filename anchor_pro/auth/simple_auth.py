@@ -25,10 +25,15 @@ def ensure_login(provider: str = "auth0") -> None:
     Call this near the top of your page. If the user is logged in, returns immediately.
     """
     if not is_authenticated():
-        if st.button("Log in", type="primary", use_container_width=True):
-            st.login(provider)  # redirects to Auth0
-        # Stop further execution until user logs in
-        st.stop()
+
+        with st.sidebar:
+            st.image('https://degenkolb.com/wp-content/uploads/Degenkolb-wh-logo.svg')
+            st.header('Welcome to AnchorPro Concrete')
+            st.subheader('Please Log In')
+            if st.button("Log in", type="primary", use_container_width=True):
+                st.login(provider)  # redirects to Auth0
+            # Stop further execution until user logs in
+            st.stop()
 
 def logout_button(label: str = "Log out") -> None:
     """

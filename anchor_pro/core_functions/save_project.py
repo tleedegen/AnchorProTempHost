@@ -89,31 +89,43 @@ def render_save_load_ui():
                 st.warning("No project data to save. Please add at least one design.")
     
     with col2:
-        # Upload Project button
+        # Upload Project button with unique key
         uploaded_file = st.file_uploader(
             "📤 Load Project",
             type=['pkl'],
             help="Upload a previously saved AnchorPro project file",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            key="project_uploader"
         )
         
+        # Initialize tracking in session state
+        if 'last_processed_file' not in st.session_state:
+            st.session_state.last_processed_file = None
+        
         if uploaded_file is not None:
-            # Read the file bytes
-            file_bytes = uploaded_file.read()
+            # Create a unique identifier for the file
+            file_id = f"{uploaded_file.name}_{uploaded_file.size}"
             
-            # Load the project
-            if load_project(file_bytes):
-                st.success("Project loaded successfully!")
-                st.rerun()  # Refresh the app to show loaded data
-            else:
-                st.error("Failed to load project file")
+            # Only process if this is a new file
+            if st.session_state.last_processed_file != file_id:
+                # Read the file bytes
+                file_bytes = uploaded_file.read()
+                
+                # Load the project
+                if load_project(file_bytes):
+                    st.success("Project loaded successfully!")
+                    st.session_state.last_processed_file = file_id
+                    st.rerun()  # Now safe to rerun
+                else:
+                    st.error("Failed to load project file")
+                    st.session_state.last_processed_file = None
 
 def render_save_load_section():
     """
     Render a dedicated section for save/load functionality.
     This can be called from the main app or placed in an expander.
     """
-    with st.expander("💾 Save/Load Project", expanded=False):
+    with st.expander("💾 Save/Load Project", expanded=True):
         st.markdown("""
         **Save your work** to continue later or share with colleagues.
         - **Save Project**: Downloads your current designs as a file
@@ -158,9 +170,17 @@ def quick_save_load_buttons():
             key="quick_upload",
             label_visibility="visible"
         )
+        
+        # Track processed files for this uploader too
+        if 'last_processed_quick_file' not in st.session_state:
+            st.session_state.last_processed_quick_file = None
+            
         if uploaded:
-            if load_project(uploaded.read()):
-                st.rerun()
+            file_id = f"{uploaded.name}_{uploaded.size}"
+            if st.session_state.last_processed_quick_file != file_id:
+                if load_project(uploaded.read()):
+                    st.session_state.last_processed_quick_file = file_id
+                    st.rerun()
 
 
 # Optional: Add validation function for integrity checks
@@ -180,12 +200,42 @@ def validate_project_data(data_column: List[Series]) -> tuple[bool, str]:
                 return False, f"Design {i+1} missing required field: {key}"
         
         # Check for anchor geometry DataFrame if it should exist
-        if 'anchor_geometry_df' in series.index:
+        if 'anchor_geometry_forces' in series.index:
             import pandas as pd
-            if not isinstance(series['anchor_geometry_df'], pd.DataFrame):
+            if not isinstance(series['anchor_geometry_forces'], pd.DataFrame):
                 return False, f"Design {i+1} has invalid anchor geometry data"
     
     return True, "Project data is valid"
+
+
+# Alternative approach using a callback pattern (optional, more robust)
+def load_project_with_callback():
+    """
+    Alternative implementation using Streamlit's callback system.
+    This approach prevents the infinite loop more reliably.
+    """
+    def _load_callback():
+        """Callback function to process the uploaded file"""
+        if st.session_state.project_file_upload is not None:
+            file_bytes = st.session_state.project_file_upload.read()
+            if load_project(file_bytes):
+                st.success("Project loaded successfully!")
+                # Clear the uploader by setting a flag
+                st.session_state.should_clear_uploader = True
+    
+    # Check if we should clear the uploader
+    if st.session_state.get('should_clear_uploader', False):
+        st.session_state.should_clear_uploader = False
+        st.session_state.project_file_upload = None
+    
+    # File uploader with callback
+    st.file_uploader(
+        "📤 Load Project (Alternative)",
+        type=['pkl'],
+        key="project_file_upload",
+        on_change=_load_callback,
+        help="Upload a previously saved AnchorPro project file"
+    )
 
 
 # Export main functions for use in other modules
@@ -195,5 +245,6 @@ __all__ = [
     'render_save_load_ui',
     'render_save_load_section',
     'quick_save_load_buttons',
-    'validate_project_data'
+    'validate_project_data',
+    'load_project_with_callback'
 ]

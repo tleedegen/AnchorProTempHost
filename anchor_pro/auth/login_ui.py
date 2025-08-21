@@ -1,14 +1,14 @@
 """Logging/Logout UI"""
 
 import streamlit as st
-from .simple_auth import is_authenticated, current_user, logout_button 
+from .simple_auth import is_authenticated, current_user, logout_button
 
 def render_login_sidebar(
     title: str = "Account",
     subtitle: str = "Sign in to continue",
     provider: str = "auth0",
 ) -> None:
-    """Ultra-minimal auth UI that lives in the Streamlit sidebar."""
+    """Auth UI that lives in the Streamlit sidebar."""
     with st.sidebar:
         st.markdown(f"### {title}")
 

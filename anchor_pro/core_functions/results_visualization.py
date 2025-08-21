@@ -35,39 +35,38 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
     # Main title
     st.header("🔧 Concrete Anchor Analysis Results")
     
-    # Key metrics row
-    col1, col2, col3, col4 = st.columns(4)
+    # # Key metrics row
+    # col1, col2, col3, col4 = st.columns(4)
     
     max_utilization = df['Utilization'].max()
     governing_state = df.loc[df['Utilization'].idxmax(), 'Limit State']
     tension_dcr = df[df['Mode'] == 'Tension']['Utilization'].max() if 'Tension' in df['Mode'].values else 0
     shear_dcr = df[df['Mode'] == 'Shear']['Utilization'].max() if 'Shear' in df['Mode'].values else 0
     
-    with col1:
-        color = "🔴" if max_utilization > 1.0 else "🟡" if max_utilization > 0.8 else "🟢"
-        st.metric(
-            "Max Utilization",
-            f"{max_utilization:.2f}",
-            delta=f"{(1.0 - max_utilization):.2f} margin",
-            delta_color="inverse"
-        )
-        st.caption(f"Status: {color}")
+    # with col1:
+    #     color = "🔴" if max_utilization > 1.0 else "🟡" if max_utilization > 0.8 else "🟢"
+    #     st.metric(
+    #         "Max Utilization",
+    #         f"{max_utilization:.2f}",
+    #         delta=f"{(1.0 - max_utilization):.2f} margin",
+    #         delta_color="inverse"
+    #     )
+    #     st.caption(f"Status: {color}")
     
-    with col2:
-        st.metric("Governing Limit State", governing_state)
-        st.caption(f"Mode: {df.loc[df['Utilization'].idxmax(), 'Mode']}")
+    # with col2:
+    #     st.metric("Governing Limit State", governing_state)
+    #     st.caption(f"Mode: {df.loc[df['Utilization'].idxmax(), 'Mode']}")
     
-    with col3:
-        st.metric("Max Tension DCR", f"{tension_dcr:.2f}")
+    # with col3:
+    #     st.metric("Max Tension DCR", f"{tension_dcr:.2f}")
     
-    with col4:
-        st.metric("Max Shear DCR", f"{shear_dcr:.2f}")
+    # with col4:
+    #     st.metric("Max Shear DCR", f"{shear_dcr:.2f}")
     
     # Create tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
         "📊 Utilization Summary", 
         "⚖️ Demand vs Capacity", 
-        "📈 Detailed Breakdown",
         "📋 Data Table"
     ])
     
@@ -78,10 +77,9 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
         render_demand_capacity_comparison(df)
     
     with tab3:
-        render_detailed_breakdown(df)
-    
-    with tab4:
         render_data_table(df)
+    
+        
     
     # Warning messages
     if max_utilization > 1.0:
@@ -401,16 +399,16 @@ def render_data_table(df: pd.DataFrame):
         try:
             num_val = float(val)
             if num_val > 1.0:
-                return 'background-color: #ffcccc'
+                return 'background-color: #961021'
             elif num_val > 0.8:
-                return 'background-color: #ffe6cc'
+                return 'background-color: #84870d'
             else:
-                return 'background-color: #ccffcc'
+                return 'background-color: #0a5618'
         except:
             return ''
     
     styled_df = df_display.style.map(
-        highlight_utilization, 
+        highlight_utilization,
         subset=['Utilization']
     )
 
@@ -428,23 +426,3 @@ def render_data_table(df: pd.DataFrame):
         file_name="anchor_analysis_results.csv",
         mime="text/csv"
     )
-
-
-# Integration function for existing app
-def add_to_visualizations_tab(df_or_path):
-    """
-    Easy integration function to add to existing visualizations.py
-    Call this function in the Analysis Results tab
-    
-    Note: Automatically handles DataFrames where 'Limit State' is either a column or the index.
-    
-    Example usage in visualizations.py:
-    ```python
-    with tab3:
-        # This works whether results.df has 'Limit State' as index or column
-        if 'analysis_results_df' in st.session_state:
-            render_anchor_calculation_results(df=st.session_state.analysis_results_df)
-    ```
-    """
-    render_anchor_calculation_results(df=df_or_path if isinstance(df_or_path, pd.DataFrame) else None,
-                                     csv_file_path=df_or_path if isinstance(df_or_path, str) else None)

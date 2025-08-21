@@ -1,8 +1,7 @@
 import streamlit as st
-from pandas import Series
-from models.anchor_design_data import DesignParameters
+from pandas import Series, DataFrame
 from dataclasses import dataclass
-from models.anchor_design_data import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
+from anchor_pro.core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
 from utils.data_loader import anchor_pro_set_data, anchor_pro_concrete_data
 
 def app_setup():
@@ -10,7 +9,7 @@ def app_setup():
     default_data_column = initialize_default_data_column()
     return default_data_column
 
-def initialize_default_data_column():
+def initialize_default_data_column() -> list[Series]:
     """Initialize the default data column in session state"""
     if "data_column" not in st.session_state:
         default_data_column: list = []
@@ -19,7 +18,7 @@ def initialize_default_data_column():
         default_series = Series(design_params.combined_dict)
         default_data_column.insert(0, default_series)
         return default_data_column
-    
+
 def save_design_to_session(design_params: DesignParameters):
     """Save current design to session state as a new snapshot (list[Series], newest first)."""
     # counter
@@ -56,7 +55,9 @@ def update_active_data_column(data_column_key: str, data):
     if st.session_state['data_column']:
         st.session_state['data_column'][0][data_column_key] = data
 
+
 def update_active_design(design_params: DesignParameters):
+    """Update the active design in session state"""
     if "data_column" not in st.session_state or not isinstance(st.session_state["data_column"], list):
         st.session_state["data_column"] = []
 

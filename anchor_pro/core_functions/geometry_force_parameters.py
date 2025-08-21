@@ -18,11 +18,11 @@ def render_anchor_data_editor() -> Anchor:
         # Initialize with empty dataframe if not exists
         if "anchor_data" not in st.session_state:
             st.session_state.anchor_data = pd.DataFrame({
-                'X': [0.0],
-                'Y': [0.0],
-                'Vx': [0.0],
-                'Vy': [0.0],
-                'N': [0.0]
+                'X': [0.0, 6.0],
+                'Y': [0.0, 6.0],
+                'Vx': [0.0, 0.0],
+                'Vy': [0.0, 0.0],
+                'N': [1000, 1000]
             })
 
         with anchor_buttons.container():
@@ -114,7 +114,7 @@ def render_anchor_data_editor() -> Anchor:
     #         st.warning(f"⚠️ Minimum anchor spacing is {min_spacing:.2f} inches. Consider minimum 3.0 inches.")
     
     # Quick action buttons - Streamlit will automatically rerun when session state changes
-
+    
     anchor = Anchor(anchor_geometry_forces=st.session_state['data_column'][0]['anchor_geometry_forces'])
     return anchor
 

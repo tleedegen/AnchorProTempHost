@@ -4,8 +4,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 from typing import Optional, Dict, Any
-from components.ap_results_visualization import render_anchor_calculation_results
-from config.constants import PROJECT_DESIGN_COLUMNS
+from anchor_pro.core_functions.results_visualization import render_anchor_calculation_results
+from anchor_pro.core_functions.design_parameters import DesignParameters
 
 def render_visualizations(anchor_data: pd.DataFrame):
     """Render all visualizations for anchor data"""
@@ -210,57 +210,26 @@ def render_calculation_display(df: pd.DataFrame):
 
 def render_project_designs_table():
     """Render the project designs summary table"""
+    with st.expander('Project Designs Summary'):
+        designs: list = st.session_state.get("data_column", [])
 
-    designs: list = st.session_state.get("data_column", [])
-    if not designs:
-        st.info("No designs saved yet.")
-        return
+        # Convert to DataFrame and transpose for better viewing
+        df = pd.DataFrame(designs)
 
-    # Convert to DataFrame and transpose for better viewing
-    df = pd.DataFrame(designs)
-
-    # Reorder columns if they exist
-    existing_cols = [col for col in PROJECT_DESIGN_COLUMNS if col in df.columns]
-    remaining_cols = [col for col in df.columns if col not in existing_cols]
-    df = df[existing_cols + remaining_cols]
-
-    # Display options
-    col1, col2, col3 = st.columns([1, 1, 3])
-    with col1:
-        show_transposed = st.checkbox("Transpose Table", value=True)
-    with col2:
-        show_index = st.checkbox("Show Index", value=True)
-
-    # Display table
-    if show_transposed:
-        st.dataframe(
-            df.T,
-            height=843,
+        project_designs = st.dataframe(
+            data=df.T, 
+            height=1500,
             use_container_width=True
         )
-    else:
-        st.dataframe(
-            df,
-            height=400,
-            use_container_width=True,
-            hide_index=not show_index
-        )
-    
-    # Export options
-    st.markdown("### Export Options")
-    col1, col2 = st.columns(2)
-    with col1:
-        csv = df.to_csv(index=False)
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name="anchor_designs.csv",
-            mime="text/csv"
-        )
-    
-    with col2:
+        
         if st.button("Clear All Designs"):
-            if st.checkbox("Confirm clear all designs"):
-                st.session_state.data_column = []
-                st.session_state.data_column_counter = 0
-                st.rerun()
+            clear_designs()
+
+def clear_designs():
+    """Clears designs and resets to default data column"""
+    default_data_column: list = []
+    design_params = DesignParameters()
+
+    default_series = pd.Series(design_params.combined_dict)
+    default_data_column.insert(0, default_series)
+    return default_data_column
