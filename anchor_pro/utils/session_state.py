@@ -1,7 +1,7 @@
 import streamlit as st
 from pandas import Series, DataFrame
 from dataclasses import dataclass
-from anchor_pro.core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
+from core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
 from utils.data_loader import anchor_pro_set_data, anchor_pro_concrete_data
 
 def app_setup():

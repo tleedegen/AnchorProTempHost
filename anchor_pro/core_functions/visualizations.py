@@ -5,7 +5,7 @@ import plotly.express as px
 import numpy as np
 from typing import Optional, Dict, Any
 from core_functions.results_visualization import render_anchor_calculation_results
-from anchor_pro.core_functions.design_parameters import DesignParameters
+from core_functions.design_parameters import DesignParameters
 
 def render_visualizations(anchor_data: pd.DataFrame):
     """Render all visualizations for anchor data"""

@@ -1,8 +1,9 @@
 import streamlit as st
 from auth.login_ui import render_login_sidebar
-from anchor_pro.core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Anchor, BasePlate
+from core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Anchor, BasePlate
 from utils.session_state import save_design_to_session
-from core_functions.input_sections import render_substrate_section, render_anchor_product_section, render_anchor_loading_section, render_anchor_data_editor, render_baseplate_geometry, render_installation_section
+from core_functions.input_sections import render_substrate_section, render_anchor_product_section, render_anchor_loading_section, render_installation_section
+from core_functions.geometry_force_parameters import render_anchor_data_editor, render_baseplate_geometry
 def render_sidebar():
     """Render the sidebar with all input fields"""
     with st.sidebar:

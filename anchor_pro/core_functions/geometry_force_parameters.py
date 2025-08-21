@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from anchor_pro.core_functions.design_parameters import Anchor, BasePlate
-from utils.session_state import update_active_data_column
-
+from core_functions.design_parameters import Anchor, BasePlate
 
 
 def render_anchor_data_editor() -> Anchor:

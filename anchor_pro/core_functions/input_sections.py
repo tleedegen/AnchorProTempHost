@@ -1,5 +1,5 @@
 import streamlit as st
-from anchor_pro.core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Anchor, BasePlate
+from core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Anchor, BasePlate
 from utils.data_loader import  get_anchor_products
 import pandas as pd
 
