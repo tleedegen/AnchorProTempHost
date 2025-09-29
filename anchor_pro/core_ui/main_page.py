@@ -18,4 +18,5 @@ def render_main_page():
 
 
     render_save_load_section()
+    st.markdown("---")
     render_visualizations()
