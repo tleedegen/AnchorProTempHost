@@ -63,21 +63,24 @@ def anchor_pro_concrete_data(session_state_data_column: pd.Series) -> pd.Series:
     return anchor_pro_series
 
 def anchor_pro_set_data(session_state_data_column: list[pd.Series]):
-    concrete_data = anchor_pro_concrete_data(session_state_data_column[0])
-    xy_anchors = anchor_pro_anchors(session_state_data_column[0]["anchor_geometry_forces"])
-    anchor_specs = load_anchor_spec_sheet()
-    anchor_id = session_state_data_column[0]["specified_product"]
-    anchor_data = anchor_specs[anchor_specs['anchor_id']==anchor_id].iloc[0]
+    """Set all data for AnchorPro calculations and store results in session state"""
 
-    model = ConcreteAnchors()
-    model.set_data(concrete_data, xy_anchors)
-    model.set_mechanical_anchor_properties(anchor_data)
-    model.anchor_forces = anchor_pro_forces(st.session_state['data_column'][0]['anchor_geometry_forces'])
-    model.check_anchor_spacing()
-    model.get_governing_anchor_group()
-    model.check_anchor_capacities()
+    if len(st.session_state['data_column']) > 1:
+        concrete_data = anchor_pro_concrete_data(session_state_data_column[st.session_state['active_data_column_index']])
+        xy_anchors = anchor_pro_anchors(session_state_data_column[st.session_state['active_data_column_index']]["anchor_geometry_forces"])
+        anchor_specs = load_anchor_spec_sheet()
+        anchor_id = session_state_data_column[st.session_state['active_data_column_index']]["specified_product"]
+        anchor_data = anchor_specs[anchor_specs['anchor_id']==anchor_id].iloc[0]
 
-    st.session_state['analysis_results_df'] = model.results
+        model = ConcreteAnchors()
+        model.set_data(concrete_data, xy_anchors)
+        model.set_mechanical_anchor_properties(anchor_data)
+        model.anchor_forces = anchor_pro_forces(st.session_state['data_column'][st.session_state['active_data_column_index']]['anchor_geometry_forces'])
+        model.check_anchor_spacing()
+        model.get_governing_anchor_group()
+        model.check_anchor_capacities()
+
+        st.session_state['analysis_results_df'] = model.results
 
 # Export functions for easy import
 __all__ = [

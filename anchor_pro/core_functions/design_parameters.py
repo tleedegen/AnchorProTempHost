@@ -7,9 +7,14 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 
+@dataclass
+class Params:
+    """Base class for parameter groups"""
+    pass
+
 
 @dataclass
-class SubstrateParams:
+class SubstrateParams(Params):
     """Stores substrate parameters for user editing"""
     fc: int = 2000
     weight_classification_base: str = "NWC"
@@ -138,7 +143,7 @@ class SubstrateParams:
 
 
 @dataclass
-class AnchorProduct:
+class AnchorProduct(Params):
     """Stores anchor products for user editing"""
     mode: Optional[str] = None
     product_group: Optional[str] = None
@@ -179,7 +184,7 @@ class AnchorProduct:
 
 
 @dataclass
-class LoadingParams:
+class LoadingParams(Params):
     """Stores loading parameters for user editing"""
     location: str = "Individual Anchors"
     seismic: bool = True
@@ -223,7 +228,7 @@ class LoadingParams:
 
 
 @dataclass
-class InstallationParams:
+class InstallationParams(Params):
     """Stores installation parameters for user editing"""
     hef: Optional[float] = None
     short_term_temp: Optional[float] = None
@@ -234,7 +239,7 @@ class InstallationParams:
 
 
 @dataclass
-class Anchor:
+class Anchor(Params):
     """Stores anchor geometry data"""
     # Lists to store anchor geometry points
     anchor_geometry_forces: Optional[pd.DataFrame] = field(default_factory=lambda: pd.DataFrame({
@@ -248,7 +253,7 @@ class Anchor:
 
 
 @dataclass
-class BasePlate:
+class BasePlate(Params):
     Bx: float = 24.0
     By: float = 24.0
     mx: float = 0.0
@@ -285,7 +290,7 @@ class BasePlate:
 
 
 @dataclass
-class DesignParameters:
+class DesignParameters(Params):
     """Stores design editor data used in calculations"""
     substrate: SubstrateParams = field(default_factory = SubstrateParams)
     anchor_product: AnchorProduct = field(default_factory = AnchorProduct)

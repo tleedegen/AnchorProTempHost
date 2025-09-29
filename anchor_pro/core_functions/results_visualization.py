@@ -34,15 +34,15 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
     
     # Main title
     st.header("🔧 Concrete Anchor Analysis Results")
-    
+
     # # Key metrics row
     # col1, col2, col3, col4 = st.columns(4)
-    
+
     max_utilization = df['Utilization'].max()
     governing_state = df.loc[df['Utilization'].idxmax(), 'Limit State']
     tension_dcr = df[df['Mode'] == 'Tension']['Utilization'].max() if 'Tension' in df['Mode'].values else 0
     shear_dcr = df[df['Mode'] == 'Shear']['Utilization'].max() if 'Shear' in df['Mode'].values else 0
-    
+
     # with col1:
     #     color = "🔴" if max_utilization > 1.0 else "🟡" if max_utilization > 0.8 else "🟢"
     #     st.metric(
@@ -52,35 +52,34 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
     #         delta_color="inverse"
     #     )
     #     st.caption(f"Status: {color}")
-    
+
     # with col2:
     #     st.metric("Governing Limit State", governing_state)
     #     st.caption(f"Mode: {df.loc[df['Utilization'].idxmax(), 'Mode']}")
-    
+
     # with col3:
     #     st.metric("Max Tension DCR", f"{tension_dcr:.2f}")
-    
+
     # with col4:
     #     st.metric("Max Shear DCR", f"{shear_dcr:.2f}")
-    
+
     # Create tabs for different views
     tab1, tab2, tab3 = st.tabs([
         "📊 Utilization Summary", 
         "⚖️ Demand vs Capacity", 
         "📋 Data Table"
     ])
-    
+
     with tab1:
         render_utilization_chart(df)
-    
+
     with tab2:
         render_demand_capacity_comparison(df)
-    
+
     with tab3:
         render_data_table(df)
-    
-        
-    
+
+
     # Warning messages
     if max_utilization > 1.0:
         st.error(f"⚠️ **CAPACITY EXCEEDED**: {governing_state} has utilization of {max_utilization:.2f}")

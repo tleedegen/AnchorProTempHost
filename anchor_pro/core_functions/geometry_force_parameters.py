@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from core_functions.design_parameters import Anchor, BasePlate
+from utils.widget_generator import WidgetSpecs
 
 
 def render_anchor_data_editor() -> Anchor:
@@ -117,47 +118,48 @@ def render_anchor_data_editor() -> Anchor:
 
 
 def render_baseplate_geometry() -> BasePlate:
-    """Render baseplate geometry editor"""
+    """Render baseplate geometry editor using WidgetSpecs"""
     with st.expander("Baseplate Geometry", expanded=True):
         st.subheader('Baseplate Geometry & Forces')
         
         baseplate = BasePlate()
 
-        st.session_state['data_column'][0]['Bx'] = st.number_input(
-            label = baseplate.Fields.Bx.label,
-            min_value = baseplate.Fields.Bx.min_value,
-            value = baseplate.Fields.Bx.value,
-            key = baseplate.Fields.Bx.key,
+        # Base plate width widget
+        bx_widget = WidgetSpecs(
+            label=baseplate.Fields.Bx.label,
+            param_type=baseplate,
+            widget_type='number_input'
         )
 
-        st.session_state['data_column'][0]['By'] = st.number_input(
-            label = baseplate.Fields.By.label,
-            min_value = baseplate.Fields.By.min_value,
-            value = baseplate.Fields.By.value,
-            key = baseplate.Fields.By.key,
+        # Base plate length widget
+        by_widget = WidgetSpecs(
+            label=baseplate.Fields.By.label,
+            param_type=baseplate,
+            widget_type='number_input'
         )
+        
         st.markdown("**Moments:**")
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.session_state['data_column'][0]['mx'] = st.number_input(
+            mx_widget = WidgetSpecs(
                 label=baseplate.Fields.Mx.label,
-                value=baseplate.Fields.Mx.value,
-                key=baseplate.Fields.Mx.key,
+                param_type=baseplate,
+                widget_type='number_input'
             )
         
         with col2:
-            st.session_state['data_column'][0]['my'] = st.number_input(
+            my_widget = WidgetSpecs(
                 label=baseplate.Fields.My.label,
-                value=baseplate.Fields.My.value,
-                key=baseplate.Fields.My.key
+                param_type=baseplate,
+                widget_type='number_input'
             )
         
         with col3:
-            st.session_state['data_column'][0]['mz'] = st.number_input(
+            mz_widget = WidgetSpecs(
                 label=baseplate.Fields.Mz.label,
-                value=baseplate.Fields.Mz.value,
-                key=baseplate.Fields.Mz.key
+                param_type=baseplate,
+                widget_type='number_input'
             )
     
     baseplate = BasePlate(

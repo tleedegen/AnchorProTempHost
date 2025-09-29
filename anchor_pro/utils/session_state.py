@@ -3,11 +3,24 @@ from pandas import Series, DataFrame
 from dataclasses import dataclass
 from core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams
 from utils.data_loader import anchor_pro_set_data, anchor_pro_concrete_data
+from utils.exceptions import DataColumnError
 
 def app_setup():
     """Initialize session state variables"""
-    default_data_column = initialize_default_data_column()
-    return default_data_column
+    initialize_default_data_column()
+
+    # Calcs and visualizations will be based on the active data column
+    if 'active_data_column_index' not in st.session_state:
+        st.session_state['active_data_column_index'] = 1
+
+    if 'dynamic_data_column_index' not in st.session_state:
+        st.session_state['dynamic_data_column_index'] = 0
+
+    # Used for tracking latest changes between widgets and loaded data
+    if 'global_version_counter' not in st.session_state:
+        st.session_state['global_version_counter'] = 0
+    if 'global_widget_version_counter' not in st.session_state:
+        st.session_state['global_widget_version_counter'] = 0
 
 def initialize_default_data_column() -> list[Series]:
     """Initialize the default data column in session state"""
@@ -21,29 +34,21 @@ def initialize_default_data_column() -> list[Series]:
 
 def save_design_to_session(design_params: DesignParameters):
     """Save current design to session state as a new snapshot (list[Series], newest first)."""
-    # counter
-    if "data_column_counter" not in st.session_state:
-        st.session_state["data_column_counter"] = 1
-    st.session_state["data_column_counter"] += 1
 
     # ensure data_column is a list of Series (recover if it was a single Series)
-    existing = st.session_state.get("data_column", [])
-    if isinstance(existing, list):
-        data_list = existing
-    elif isinstance(existing, Series):
-        data_list = [existing]  # salvage prior state instead of nuking it
+    existing_data_column = st.session_state['data_column']
+    if isinstance(existing_data_column, list) and len(existing_data_column) > 0 and all(isinstance(item, Series) for item in existing_data_column):
+        data_list = existing_data_column
     else:
-        data_list = []
+        raise DataColumnError("Invalid data column format")
+
 
     # take an independent snapshot so previous saves don't get mutated later
     snap = Series(design_params.combined_dict).copy(deep=True)
-    data_list.insert(0, snap)
+    data_list.append(snap)
 
-    # write back
     st.session_state["data_column"] = data_list
 
-    if st.session_state["data_column_counter"] >= 3:
-        st.success("Design saved!")
 
 
 def get_saved_designs():

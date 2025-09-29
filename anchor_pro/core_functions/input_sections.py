@@ -2,6 +2,7 @@ import streamlit as st
 from core_functions.design_parameters import DesignParameters, SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Anchor, BasePlate
 from utils.data_loader import  get_anchor_products
 import pandas as pd
+from utils.widget_generator import WidgetSpecs
 
 
 def render_substrate_section() -> SubstrateParams:
@@ -10,109 +11,98 @@ def render_substrate_section() -> SubstrateParams:
 
         st.subheader("Substrate")
         substrate_params = SubstrateParams()
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.session_state['data_column'][0]['fc'] = st.selectbox(
-                label = substrate_params.Fields.BaseMaterial.label,
-                options = substrate_params.Fields.BaseMaterial.options,
-                key = substrate_params.Fields.BaseMaterial.key,)
-
-        with col2:
-            st.session_state['data_column'][0]['cracked_concrete'] = st.selectbox(
-                label = substrate_params.Fields.CrackedConcrete.label,
-                options = substrate_params.Fields.CrackedConcrete.options,
-                index = substrate_params.Fields.CrackedConcrete.index,
-                key = substrate_params.Fields.CrackedConcrete.key
+        base_material_widget = WidgetSpecs(
+            label=substrate_params.Fields.BaseMaterial.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
             )
-            st.session_state['data_column'][0]['grouted'] = st.selectbox(
-                label = substrate_params.Fields.Grouted.label,
-                options = substrate_params.Fields.Grouted.options,
-                placeholder = substrate_params.Fields.Grouted.placeholder,
-                key = substrate_params.Fields.Grouted.key)
 
-        with col3:
-            st.session_state['data_column'][0]['weight_classification_base'] = st.selectbox(
-                label = substrate_params.Fields.WeightClass.label,
-                options = substrate_params.Fields.WeightClass.options,
-                index = substrate_params.Fields.WeightClass.index,
-                key = substrate_params.Fields.WeightClass.key,)
-            st.session_state['data_column'][0]['lw_factor'] = substrate_params.weight_class_lambda(st.session_state['data_column'][0]['weight_classification_base'])
+        cracked_concrete_widget = WidgetSpecs(
+            label=substrate_params.Fields.CrackedConcrete.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
 
-        with col1:
-            st.session_state['data_column'][0]['poisson'] = st.number_input(
-                label = substrate_params.Fields.Poisson.label,
-                min_value = substrate_params.Fields.Poisson.min_value,
-                max_value = substrate_params.Fields.Poisson.max_value,
-                value = substrate_params.Fields.Poisson.value,
-                key = substrate_params.Fields.Poisson.key)
+        grouted_widget = WidgetSpecs(
+            label=substrate_params.Fields.Grouted.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
+
+        weight_class_widget = WidgetSpecs(
+            label=substrate_params.Fields.WeightClass.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
+
+        poisson_widget = WidgetSpecs(
+            label=substrate_params.Fields.Poisson.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+
+
+        concrete_thickness_widget = WidgetSpecs(
+            label=substrate_params.Fields.ConcreteThickness.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+        profile_widget = WidgetSpecs(
+            label=substrate_params.Fields.Profile.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
             
-        with col2:
-            st.session_state['data_column'][0]['t_slab'] = st.number_input(
-                label = substrate_params.Fields.ConcreteThickness.label,
-                min_value = substrate_params.Fields.ConcreteThickness.min_value,
-                value = substrate_params.Fields.ConcreteThickness.value,
-                key = substrate_params.Fields.ConcreteThickness.key)
-            
-        with col3:
-            st.session_state['data_column'][0]['profile'] = st.selectbox(
-                label = substrate_params.Fields.Profile.label,
-                options = substrate_params.Fields.Profile.options,
-                index = substrate_params.Fields.Profile.index,
-                key = substrate_params.Fields.Profile.key)
-            
-        with col1:
-            st.session_state['data_column'][0]['cx_neg'] = st.number_input(
-                label = substrate_params.Fields.EdgeDistXNeg.label,
-                min_value = substrate_params.Fields.EdgeDistXNeg.min_value,
-                value = substrate_params.Fields.EdgeDistXNeg.value,
-                key = substrate_params.Fields.EdgeDistXNeg.key)
-            
-        with col2:
-            st.session_state['data_column'][0]['cx_pos'] = st.number_input(
-                label = substrate_params.Fields.EdgeDistXPos.label,
-                min_value = substrate_params.Fields.EdgeDistXPos.min_value,
-                value = substrate_params.Fields.EdgeDistXPos.value,
-                key = substrate_params.Fields.EdgeDistXPos.key)
-            
-        with col1:
-            st.session_state['data_column'][0]['cy_neg'] = st.number_input(
-                label = substrate_params.Fields.EdgeDistYNeg.label,
-                min_value = substrate_params.Fields.EdgeDistYNeg.min_value,
-                value = substrate_params.Fields.EdgeDistYNeg.value,
-                key = substrate_params.Fields.EdgeDistYNeg.key)
-            
-        with col2:
-            st.session_state['data_column'][0]['cy_pos'] = st.number_input(
-                label = substrate_params.Fields.EdgeDistYPos.label,
-                min_value = substrate_params.Fields.EdgeDistYPos.min_value,
-                value = substrate_params.Fields.EdgeDistYPos.value,
-                key = substrate_params.Fields.EdgeDistYPos.key)
+
+        edge_dist_x_neg_widget = WidgetSpecs(
+            label=substrate_params.Fields.EdgeDistXNeg.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+
+        edge_dist_x_pos_widget = WidgetSpecs(
+            label=substrate_params.Fields.EdgeDistXPos.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
         
-        st.session_state['data_column'][0]['anchor_position'] = st.selectbox(
-            label = substrate_params.Fields.AnchorPosition.label,
-            options = substrate_params.Fields.AnchorPosition.options,
-            placeholder = substrate_params.Fields.AnchorPosition.placeholder,
-            key = substrate_params.Fields.AnchorPosition.key)
 
-        st.session_state['data_column'][0]['deck_location'] = st.selectbox(
-            label = substrate_params.Fields.DeckLocation.label,
-            options = substrate_params.Fields.DeckLocation.options,
-            placeholder = substrate_params.Fields.DeckLocation.placeholder,
-            key = substrate_params.Fields.DeckLocation.key)
+        edge_dist_y_neg_widget = WidgetSpecs(
+            label=substrate_params.Fields.EdgeDistYNeg.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+        
 
-        st.session_state['data_column'][0]['hole_diameter'] = st.number_input(
-            label = substrate_params.Fields.HoleDiameter.label,
-            min_value = substrate_params.Fields.HoleDiameter.min_value,
-            value=substrate_params.Fields.HoleDiameter.value,
-            placeholder = substrate_params.Fields.HoleDiameter.placeholder,
-            key = substrate_params.Fields.HoleDiameter.key)
+        edge_dist_y_pos_widget = WidgetSpecs(
+            label=substrate_params.Fields.EdgeDistYPos.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+        
+        anchor_position_widget = WidgetSpecs(
+            label=substrate_params.Fields.AnchorPosition.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
 
-        st.session_state['data_column'][0]['face_side'] = st.selectbox(
-            label = substrate_params.Fields.FaceSide.label,
-            options = substrate_params.Fields.FaceSide.options,
-            placeholder = substrate_params.Fields.FaceSide.placeholder,
-            key = substrate_params.Fields.FaceSide.key)
+        deck_location_widget = WidgetSpecs(
+            label=substrate_params.Fields.DeckLocation.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
+
+        hole_diameter_widget = WidgetSpecs(
+            label=substrate_params.Fields.HoleDiameter.label,
+            param_type=substrate_params,
+            widget_type='number_input'
+        )
+
+        face_side_widget = WidgetSpecs(
+            label=substrate_params.Fields.FaceSide.label,
+            param_type=substrate_params,
+            widget_type='selectbox'
+        )
         
     substrate_params = SubstrateParams(
         fc=st.session_state['data_column'][0]['fc'],
@@ -141,27 +131,32 @@ def render_anchor_product_section() -> AnchorProduct:
 
         anchor_product = AnchorProduct()
 
-        manufacturer = st.selectbox(
-            label = anchor_product.Fields.Manufacturer.label,
-            options = anchor_product.Fields.Manufacturer.options,
-            placeholder = anchor_product.Fields.Manufacturer.placeholder,
-            key = anchor_product.Fields.Manufacturer.key,
+        # Manufacturer widget
+        manufacturer_widget = WidgetSpecs(
+            label=anchor_product.Fields.Manufacturer.label,
+            param_type=anchor_product,
+            widget_type='selectbox'
         )
+
+        # Get the manufacturer value from session state
+        manufacturer = st.session_state.get('anchor_product_mode')
 
         # Filter products based on manufacturer if selected
         if manufacturer:
             anchor_products = get_anchor_products(anchor_product.anchor_parameters, 
-                                                manufacturer = manufacturer)
+                                                manufacturer=manufacturer)
         else:
             anchor_products = get_anchor_products(anchor_product.anchor_parameters)
 
-        # Specified product selection
-        st.session_state['data_column'][0]['specified_product'] = st.selectbox(
-            label = anchor_product.Fields.SpecifiedProduct.label,
-            options = list(anchor_products),
-            placeholder = anchor_product.Fields.SpecifiedProduct.placeholder,
-            key = anchor_product.Fields.SpecifiedProduct.key,
-            index = anchor_product.Fields.SpecifiedProduct.index
+        # Update options for specified product dynamically
+        anchor_product.Fields.SpecifiedProduct.options = list(anchor_products)
+        
+        # Specified product widget
+        specified_product_widget = WidgetSpecs(
+            label=anchor_product.Fields.SpecifiedProduct.label,
+            param_type=anchor_product,
+            widget_type='selectbox',
+            options=list(anchor_products)  # Pass the filtered options
         )
 
         anchor_product = AnchorProduct(
@@ -176,36 +171,29 @@ def render_anchor_loading_section() -> LoadingParams:
 
         loading_params = LoadingParams()
         
-        st.session_state['data_column'][0]['location'] = st.selectbox(
-            loading_params.Fields.LoadLocation.label,
-            options=loading_params.Fields.LoadLocation.options,
-            index=loading_params.Fields.LoadLocation.index,
-            placeholder=loading_params.Fields.LoadLocation.placeholder,
-            key=loading_params.Fields.LoadLocation.key
+        load_location_widget = WidgetSpecs(
+            label=loading_params.Fields.LoadLocation.label,
+            param_type=loading_params,
+            widget_type='selectbox'
         )
-        
-
 
         st.markdown("**Options:**")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.session_state['data_column'][0]['seismic'] = st.selectbox(
+            seismic_widget = WidgetSpecs(
                 label=loading_params.Fields.Seismic.label,
-                options=loading_params.Fields.Seismic.options,
-                index=loading_params.Fields.Seismic.index,
-                format_func=lambda x: "Yes" if x else "No",
-                key=loading_params.Fields.Seismic.key
+                param_type=loading_params,
+                widget_type='selectbox'
             )
         
         with col2:
-            st.session_state['data_column'][0]['phi_override'] = st.selectbox(
+            phi_override_widget = WidgetSpecs(
                 label=loading_params.Fields.PhiOverride.label,
-                options=loading_params.Fields.PhiOverride.options,
-                index= loading_params.Fields.PhiOverride.index,
-                format_func=lambda x: "Yes" if x else "No",
-                key=loading_params.Fields.PhiOverride.key
+                param_type=loading_params,
+                widget_type='selectbox'
             )
+            
     loading_params = LoadingParams(
         location=st.session_state['data_column'][0]['location'],
         seismic=st.session_state['data_column'][0]['seismic'],
@@ -295,4 +283,3 @@ def render_installation_section() -> InstallationParams:
             inspection_condition=inspection_condition,
             moisture_condition=moisture_condition,
         )
-
