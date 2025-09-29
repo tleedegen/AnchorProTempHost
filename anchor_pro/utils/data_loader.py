@@ -66,6 +66,10 @@ def anchor_pro_set_data(session_state_data_column: list[pd.Series]):
     """Set all data for AnchorPro calculations and store results in session state"""
 
     if len(st.session_state['data_column']) > 1:
+        # Ensure active index is valid
+        if st.session_state['active_data_column_index'] >= len(st.session_state['data_column']):
+            st.session_state['active_data_column_index'] = 1
+            
         concrete_data = anchor_pro_concrete_data(session_state_data_column[st.session_state['active_data_column_index']])
         xy_anchors = anchor_pro_anchors(session_state_data_column[st.session_state['active_data_column_index']]["anchor_geometry_forces"])
         anchor_specs = load_anchor_spec_sheet()

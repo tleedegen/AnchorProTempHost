@@ -15,11 +15,14 @@ def render_visualizations():
     #     return
 
     if len(st.session_state['data_column']) > 1:
-        st.session_state['active_data_column_index'] = st.selectbox(label='Select Data Column',
+        active_index_selectbox = st.selectbox(label='Select Design to Visualize',
                                     options=(range(1, len(st.session_state['data_column']))) if len(st.session_state['data_column']) > 1 else [0],
                                     key='visual_index',
-                                    format_func=lambda x: f"Column {x}" )
-        active_index = st.session_state['active_data_column_index']
+                                    format_func=lambda x: f"Design {x}" )
+        active_index = active_index_selectbox
+
+        if st.session_state['active_data_column_index'] != active_index:
+            st.session_state['active_data_column_index'] = active_index
 
         active_geometry_forces = st.session_state['data_column'][active_index]['anchor_geometry_forces']
 
