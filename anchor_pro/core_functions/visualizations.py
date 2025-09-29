@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 from typing import Optional, Dict, Any, List, Mapping
-from core_functions.results_visualization import render_anchor_calculation_results
+from core_functions.results_visualization import render_anchor_calculation_results, render_demand_capacity_ratio_table
 from core_functions.design_parameters import DesignParameters
 
 def render_visualizations():
@@ -32,6 +32,7 @@ def render_visualizations():
             render_anchor_layout(active_geometry_forces, active_index)
         with col2:
             render_anchor_calculation_results(df = st.session_state["analysis_results_df"])
+        render_demand_capacity_ratio_table()
     else:
         st.info("No saved designs to visualize. Record a design to see visualizations.")
 

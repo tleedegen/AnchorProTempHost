@@ -62,18 +62,18 @@ def anchor_pro_concrete_data(session_state_data_column: pd.Series) -> pd.Series:
     anchor_pro_series = pd.Series({k: session_state_data_column[k] for k in required_data})
     return anchor_pro_series
 
-def anchor_pro_set_data(session_state_data_column: list[pd.Series]):
+def anchor_pro_set_data():
     """Set all data for AnchorPro calculations and store results in session state"""
 
     if len(st.session_state['data_column']) > 1:
         # Ensure active index is valid
         if st.session_state['active_data_column_index'] >= len(st.session_state['data_column']):
             st.session_state['active_data_column_index'] = 1
-            
-        concrete_data = anchor_pro_concrete_data(session_state_data_column[st.session_state['active_data_column_index']])
-        xy_anchors = anchor_pro_anchors(session_state_data_column[st.session_state['active_data_column_index']]["anchor_geometry_forces"])
+
+        concrete_data = anchor_pro_concrete_data(st.session_state['data_column'][st.session_state['active_data_column_index']])
+        xy_anchors = anchor_pro_anchors(st.session_state['data_column'][st.session_state['active_data_column_index']]["anchor_geometry_forces"])
         anchor_specs = load_anchor_spec_sheet()
-        anchor_id = session_state_data_column[st.session_state['active_data_column_index']]["specified_product"]
+        anchor_id = st.session_state['data_column'][st.session_state['active_data_column_index']]["specified_product"]
         anchor_data = anchor_specs[anchor_specs['anchor_id']==anchor_id].iloc[0]
 
         model = ConcreteAnchors()

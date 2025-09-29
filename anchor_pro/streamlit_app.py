@@ -30,7 +30,7 @@ def main():
     # All inputs done in sidebar
     render_sidebar()
     # All data anchor calculations done
-    anchor_pro_set_data(st.session_state['data_column'])
+    anchor_pro_set_data()
     render_main_page()
 
 

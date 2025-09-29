@@ -4,27 +4,28 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
+from utils.data_loader import anchor_pro_set_data
 
 def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFrame = None):
     """
     Render comprehensive visualization for concrete anchor calculation results.
     Can accept either a CSV file path or a DataFrame directly.
     """
-    
+
     # Load data
     if df is None and csv_file_path:
         df = pd.read_csv(csv_file_path)
     elif df is None:
         st.error("No data provided for visualization")
         return
-    
+
     # Handle case where 'Limit State' might be the index
     if 'Limit State' not in df.columns and df.index.name == 'Limit State':
         df = df.reset_index()
     elif 'Limit State' not in df.columns:
         st.error("'Limit State' column not found in the data")
         return
-    
+
     # Main title
     st.header("🔧 Concrete Anchor Analysis Results")
 
@@ -37,8 +38,8 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
     shear_dcr = df[df['Mode'] == 'Shear']['Utilization'].max() if 'Shear' in df['Mode'].values else 0
 
     tab1, tab2, tab3 = st.tabs([
-        "📊 Utilization Summary", 
-        "⚖️ Demand vs Capacity", 
+        "📊 Utilization Summary",
+        "⚖️ Demand vs Capacity",
         "📋 Data Table"
     ])
 
@@ -51,7 +52,6 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
     with tab3:
         render_data_table(df)
 
-
     # Warning messages
     if max_utilization > 1.0:
         st.error(f"⚠️ **CAPACITY EXCEEDED**: {governing_state} has utilization of {max_utilization:.2f}")
@@ -63,22 +63,23 @@ def render_anchor_calculation_results(csv_file_path: str = None, df: pd.DataFram
         st.success(f"✅ Design has adequate capacity. Maximum utilization: {max_utilization:.1%}")
 
 
+
 def render_utilization_chart(df: pd.DataFrame):
     """Render horizontal bar chart of utilization ratios"""
-    
+
     # Ensure we have 'Limit State' as a column
     if 'Limit State' not in df.columns and df.index.name == 'Limit State':
         df = df.reset_index()
-    
+
     # Sort by utilization for better visibility
     df_sorted = df.sort_values('Utilization', ascending=True)
-    
+
     # Color based on utilization level
-    colors = ['red' if x > 1.0 else 'orange' if x > 0.8 else 'green' 
+    colors = ['red' if x > 1.0 else 'orange' if x > 0.8 else 'green'
               for x in df_sorted['Utilization']]
-    
+
     fig = go.Figure()
-    
+
     # Add utilization bars
     fig.add_trace(go.Bar(
         y=df_sorted['Limit State'],
@@ -92,13 +93,13 @@ def render_utilization_chart(df: pd.DataFrame):
                       'Utilization: %{x:.2f}<br>' +
                       '<extra></extra>'
     ))
-    
+
     # Add reference lines
-    fig.add_vline(x=1.0, line_dash="dash", line_color="red", 
+    fig.add_vline(x=1.0, line_dash="dash", line_color="red",
                   annotation_text="Capacity Limit", annotation_position="top")
-    fig.add_vline(x=0.8, line_dash="dot", line_color="orange", 
+    fig.add_vline(x=0.8, line_dash="dot", line_color="orange",
                   annotation_text="80% Threshold", annotation_position="bottom")
-    
+
     fig.update_layout(
         title="Limit State Utilization Ratios",
         xaxis_title="Utilization (Demand / Factored Capacity)",
@@ -108,20 +109,20 @@ def render_utilization_chart(df: pd.DataFrame):
         showlegend=False,
         hovermode='y unified'
     )
-    
+
     st.plotly_chart(fig, use_container_width=True)
 
 
 def render_demand_capacity_comparison(df: pd.DataFrame):
     """Render grouped bar chart comparing demand vs capacity"""
-    
+
     # Ensure we have 'Limit State' as a column
     if 'Limit State' not in df.columns and df.index.name == 'Limit State':
         df = df.reset_index()
-    
+
     # Prepare data for comparison
     comparison_data = df[['Limit State', 'Mode', 'Demand', 'Factored Capacity']].copy()
-    
+
     # Create subplot with shared y-axis
     fig = make_subplots(
         rows=1, cols=2,
@@ -129,11 +130,11 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
         shared_yaxes=False,
         horizontal_spacing=0.15
     )
-    
+
     # Separate by mode
     tension_df = comparison_data[comparison_data['Mode'] == 'Tension']
     shear_df = comparison_data[comparison_data['Mode'] == 'Shear']
-    
+
     # Tension subplot
     if not tension_df.empty:
         fig.add_trace(
@@ -150,7 +151,7 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
             ),
             row=1, col=1
         )
-        
+
         fig.add_trace(
             go.Bar(
                 name='Factored Capacity',
@@ -165,7 +166,7 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
             ),
             row=1, col=1
         )
-    
+
     # Shear subplot
     if not shear_df.empty:
         fig.add_trace(
@@ -182,7 +183,7 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
             ),
             row=1, col=2
         )
-        
+
         fig.add_trace(
             go.Bar(
                 name='Factored Capacity',
@@ -197,7 +198,7 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
             ),
             row=1, col=2
         )
-    
+
     fig.update_layout(
         title="Demand vs Factored Capacity Comparison",
         barmode='group',
@@ -212,151 +213,23 @@ def render_demand_capacity_comparison(df: pd.DataFrame):
         ),
         hovermode='y unified'
     )
-    
+
     fig.update_xaxes(title_text="Force (lbs)", row=1, col=1)
     fig.update_xaxes(title_text="Force (lbs)", row=1, col=2)
-    
+
     st.plotly_chart(fig, use_container_width=True)
-
-
-def render_detailed_breakdown(df: pd.DataFrame):
-    """Render detailed breakdown with capacity factors"""
-    
-    # Ensure we have 'Limit State' as a column
-    if 'Limit State' not in df.columns and df.index.name == 'Limit State':
-        df = df.reset_index()
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Pie chart of modes
-        mode_counts = df['Mode'].value_counts()
-        fig_pie = px.pie(
-            values=mode_counts.values,
-            names=mode_counts.index,
-            title="Limit States by Mode",
-            color_discrete_map={'Tension': '#FF6B6B', 'Shear': '#4ECDC4'}
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-    
-    with col2:
-        # Reduction factors visualization
-        fig_factors = go.Figure()
-        
-        # Add bars for reduction factors
-        fig_factors.add_trace(go.Bar(
-            name='Reduction Factor (φ)',
-            x=df['Limit State'],
-            y=df['Reduction Factor'],
-            marker_color='steelblue',
-            text=[f"{x:.2f}" for x in df['Reduction Factor']],
-            textposition='outside'
-        ))
-        
-        # Add seismic factors as markers
-        fig_factors.add_trace(go.Scatter(
-            name='Seismic Factor',
-            x=df['Limit State'],
-            y=df['Seismic Factor'],
-            mode='markers+text',
-            marker=dict(size=10, color='red', symbol='diamond'),
-            text=[f"{x:.2f}" for x in df['Seismic Factor']],
-            textposition='top center'
-        ))
-        
-        fig_factors.update_layout(
-            title="Safety Factors Applied",
-            xaxis_title="",
-            yaxis_title="Factor Value",
-            height=400,
-            xaxis_tickangle=-45,
-            showlegend=True,
-            yaxis=dict(range=[0, 1.1])
-        )
-        
-        st.plotly_chart(fig_factors, use_container_width=True)
-    
-    # Interaction diagram (if both tension and shear exist)
-    tension_data = df[df['Mode'] == 'Tension']
-    shear_data = df[df['Mode'] == 'Shear']
-    
-    if not tension_data.empty and not shear_data.empty:
-        st.subheader("Tension-Shear Interaction")
-        
-        max_tension_util = tension_data['Utilization'].max()
-        max_shear_util = shear_data['Utilization'].max()
-        
-        # Create interaction curve (5/3 power equation)
-        theta = np.linspace(0, np.pi/2, 100)
-        n_ratio = np.cos(theta)
-        v_ratio = np.sin(theta)
-        
-        fig_interaction = go.Figure()
-        
-        # Add interaction curve
-        fig_interaction.add_trace(go.Scatter(
-            x=v_ratio,
-            y=n_ratio,
-            mode='lines',
-            name='Interaction Curve',
-            line=dict(color='blue', dash='dash'),
-            hovertemplate='V/Vc: %{x:.2f}<br>N/Nc: %{y:.2f}<extra></extra>'
-        ))
-        
-        # Add current state point
-        fig_interaction.add_trace(go.Scatter(
-            x=[max_shear_util],
-            y=[max_tension_util],
-            mode='markers+text',
-            name='Current Design',
-            marker=dict(size=15, color='red' if (max_tension_util**(5/3) + max_shear_util**(5/3)) > 1 else 'green'),
-            text=['Design Point'],
-            textposition='top right',
-            hovertemplate='Shear DCR: %{x:.2f}<br>Tension DCR: %{y:.2f}<extra></extra>'
-        ))
-        
-        fig_interaction.update_layout(
-            title="Tension-Shear Interaction Check",
-            xaxis_title="Shear Utilization (V/Vc)",
-            yaxis_title="Tension Utilization (N/Nc)",
-            height=400,
-            xaxis=dict(range=[0, 1.2], dtick=0.2),
-            yaxis=dict(
-                range=[0, 1.2], 
-                dtick=0.2,
-                scaleanchor="x",  # Link y-axis scale to x-axis
-                scaleratio=1      # Maintain 1:1 aspect ratio
-            ),
-            showlegend=True
-        )
-        
-        # Add grid
-        fig_interaction.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
-        fig_interaction.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
-        
-        st.plotly_chart(fig_interaction, use_container_width=True)
-        
-        # Calculate interaction
-        interaction_value = max_tension_util**(5/3) + max_shear_util**(5/3)
-        st.metric(
-            "Interaction Check",
-            f"{interaction_value:.3f}",
-            delta=f"{(1.0 - interaction_value):.3f} margin",
-            delta_color="inverse"
-        )
-        st.caption("Per ACI 318-19 Eq. (17.10.3): (N/φNn)^(5/3) + (V/φVn)^(5/3) ≤ 1.0")
 
 
 def render_data_table(df: pd.DataFrame):
     """Render the raw data table with formatting"""
-    
+
     # Ensure we have 'Limit State' as a column
     if 'Limit State' not in df.columns and df.index.name == 'Limit State':
         df = df.reset_index()
-    
+
     # Format the dataframe for display
     df_display = df.copy()
-    
+
     # Apply formatting
     df_display['Demand'] = df_display['Demand'].apply(lambda x: f"{x:,.0f}")
     df_display['Nominal Capacity'] = df_display['Nominal Capacity'].apply(lambda x: f"{x:,.1f}")
@@ -364,7 +237,7 @@ def render_data_table(df: pd.DataFrame):
     df_display['Seismic Factor'] = df_display['Seismic Factor'].apply(lambda x: f"{x:.2f}")
     df_display['Factored Capacity'] = df_display['Factored Capacity'].apply(lambda x: f"{x:,.1f}")
     df_display['Utilization'] = df_display['Utilization'].apply(lambda x: f"{x:.3f}")
-    
+
     # Display with color coding for utilization
     def highlight_utilization(val):
         try:
@@ -377,7 +250,7 @@ def render_data_table(df: pd.DataFrame):
                 return 'background-color: #0a5618'
         except:
             return ''
-    
+
     styled_df = df_display.style.map(
         highlight_utilization,
         subset=['Utilization']
@@ -388,7 +261,7 @@ def render_data_table(df: pd.DataFrame):
         use_container_width=True,
         height=400
     )
-    
+
     # Download button
     csv = df.to_csv(index=False)
     st.download_button(
@@ -397,3 +270,52 @@ def render_data_table(df: pd.DataFrame):
         file_name="anchor_analysis_results.csv",
         mime="text/csv"
     )
+
+def render_demand_capacity_ratio_table():
+    """Render table of demand/capacity ratios for each saved design (skip default at index 0)."""
+    if len(st.session_state['data_column']) <= 1:
+        st.info("No saved designs to display")
+        return
+
+    original_active_index = st.session_state['active_data_column_index']
+
+    # Collect the Utilization series for each saved design (skip index 0 default)
+    ratios = []
+    for idx in range(1, len(st.session_state['data_column'])):
+        st.session_state['active_data_column_index'] = idx
+        anchor_pro_set_data()
+        s = st.session_state['analysis_results_df']['Utilization'].copy()
+        s.name = f"Design {idx}"   # column label
+        ratios.append(s)
+
+    # Restore active index
+    st.session_state['active_data_column_index'] = original_active_index
+
+    st.write("### 📋 Demand/Capacity Ratios Summary")
+
+    # Combine into a single DataFrame with designs as columns
+    ratios_df = pd.concat(ratios, axis=1)
+
+    # Styling helper (use numeric value, not strings)
+    def highlight_utilization(val):
+        try:
+            if val > 1.0:
+                return 'background-color: #961021; color: white;'
+            elif val > 0.8:
+                return 'background-color: #84870d; color: white;'
+            else:
+                return 'background-color: #0a5618; color: white;'
+        except Exception:
+            return ''
+
+    # Format to 3 decimals *and* apply per-cell colors
+    styled = (
+        ratios_df.style.format("{:.3f}").map(highlight_utilization)
+    )
+
+    # IMPORTANT: pass the Styler to Streamlit (not the raw DataFrame)
+    st.dataframe(styled, use_container_width=True, height=300)
+
+
+
+
