@@ -18,7 +18,7 @@ def main():
     # Authentication check
     ensure_login()
     app_setup()
-    st.write(st.session_state)
+    # st.write(st.session_state)
 
     if "data_column" not in st.session_state:
         st.session_state['data_column'] = initialize_default_data_column()
@@ -35,7 +35,7 @@ def main():
 
 
 
-    st.write(st.session_state)
+    # st.write(st.session_state)
 
 
 if __name__ == "__main__":
