@@ -7,6 +7,7 @@ import numpy as np
 from typing import Optional, Dict, Any, List, Mapping
 from core_functions.results_visualization import render_anchor_calculation_results, render_demand_capacity_ratio_table
 from core_functions.design_parameters import DesignParameters
+from utils.exceptions import DesignNameError
 
 def render_visualizations():
     """Render all visualizations for anchor data"""
@@ -32,7 +33,6 @@ def render_visualizations():
             render_anchor_layout(active_geometry_forces, active_index)
         with col2:
             render_anchor_calculation_results(df = st.session_state["analysis_results_df"])
-        render_demand_capacity_ratio_table()
     else:
         st.info("No saved designs to visualize. Record a design to see visualizations.")
 
@@ -334,16 +334,25 @@ def render_project_designs_table():
     """Render the project designs summary table with design switching functionality"""
     with st.expander('Project Designs Summary', expanded=True):
 
-        designs: list = st.session_state['data_column'][1:]  # Exclude the default design at index 0
+        designs: list = st.session_state['data_column']
+        designs_trimmed: list = designs[1:]  # Exclude the default design at index 0
+        if 'design_names' in st.session_state:
+            names = st.session_state['design_names']
+        else:
+            names = []
 
-        if len(designs) < 1:
+        if len(designs_trimmed) < 1:
             st.info("No designs saved yet. Use 'Record Data' to save designs.")
             return
 
-        df = pd.DataFrame(designs)
+        df = pd.DataFrame(designs_trimmed)
 
         # Add design labels as row index
-        df.index = pd.Index([f"Design {i+1}" for i in range(len(designs))])
+        if len(names) == len(designs_trimmed):
+            name_index = st.session_state['design_names']
+            df.index = pd.Index(name_index)
+        else:
+            raise DesignNameError(f"Mismatch between number of design names and saved designs. Names: {len(names)}, Designs: {len(designs_trimmed)}")
 
         # Display the dataframe transposed (designs as columns, parameters as rows)
         st.dataframe(
@@ -352,27 +361,22 @@ def render_project_designs_table():
             use_container_width=True
         )
 
-        st.markdown('**Modify Designs**')
+        st.markdown('**Delete Designs**')
 
         # Select which design to modify (index shifted by +1 because 0 is reserved)
         selected_design = st.selectbox(
             "Select a design to modify:",
-            options=list(range(1, len(st.session_state['data_column']))),
-            format_func=lambda i: f"Design {i}"
+            options=list(range(len(designs_trimmed))),
+            format_func=lambda i: names[i]
         )
 
-        action = st.radio("Action:", ["Delete", "Overwrite with Preview"], horizontal=True)
-
-        if st.button("Apply Modification"):
-            if action == "Delete":
-                # Remove the selected design
-                del st.session_state['data_column'][selected_design]
-                st.session_state['active_data_column_index'] = 1  # Reset active index to 1
-                st.success(f"Design {selected_design} deleted.")
-            elif action == "Overwrite with Preview":
-                # Overwrite with index 0 (default design)
-                st.session_state['data_column'][selected_design] = st.session_state['data_column'][0].copy()
-                st.success(f"Design {selected_design} overwritten with default design.")
+        if st.button("Delete Selected Design"):
+            del designs[selected_design + 1]  # +1 to account for default design at index 0
+            del names[selected_design]
+            st.session_state['design_names'] = names
+            st.session_state['data_column'] = designs
+            st.session_state['active_data_column_index'] = 1  # Reset active index to 1
+            st.success(f"Design {selected_design} deleted.")
 
             st.rerun()  # Refresh to show changes
 

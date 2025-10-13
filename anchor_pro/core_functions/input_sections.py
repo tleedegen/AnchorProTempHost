@@ -3,6 +3,7 @@ from core_functions.design_parameters import DesignParameters, SubstrateParams, 
 from utils.data_loader import  get_anchor_products
 import pandas as pd
 from utils.widget_generator import WidgetSpecs
+from utils.constants import ANCHOR_PRO_BACKEND_PARAM_SS_KEYS
 
 
 def render_substrate_section() -> SubstrateParams:
@@ -139,18 +140,18 @@ def render_anchor_product_section() -> AnchorProduct:
         )
 
         # Get the manufacturer value from session state
-        manufacturer = st.session_state.get('anchor_product_mode')
+        manufacturer = st.session_state['manufacturer']
 
         # Filter products based on manufacturer if selected
         if manufacturer:
-            anchor_products = get_anchor_products(anchor_product.anchor_parameters, 
+            anchor_products = get_anchor_products(anchor_product.anchor_parameters,
                                                 manufacturer=manufacturer)
         else:
             anchor_products = get_anchor_products(anchor_product.anchor_parameters)
 
         # Update options for specified product dynamically
         anchor_product.Fields.SpecifiedProduct.options = list(anchor_products)
-        
+
         # Specified product widget
         specified_product_widget = WidgetSpecs(
             label=anchor_product.Fields.SpecifiedProduct.label,
@@ -202,6 +203,7 @@ def render_anchor_loading_section() -> LoadingParams:
     return loading_params
 
 def render_installation_section() -> InstallationParams:
+
     """Render installation conditions fields"""
     with st.expander('Installation Conditions', expanded=True):
         st.header("Installation Conditions")
@@ -283,3 +285,6 @@ def render_installation_section() -> InstallationParams:
             inspection_condition=inspection_condition,
             moisture_condition=moisture_condition,
         )
+
+def load_design_to_editor(design: pd.Series):
+    '''Load selected design values into the widgets for editing'''

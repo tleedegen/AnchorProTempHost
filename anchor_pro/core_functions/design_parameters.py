@@ -159,7 +159,7 @@ class AnchorProduct(Params):
             # `options` is dynamic, filled after init
             options: tuple = ()
             placeholder: ClassVar[str] = "Select..."
-            key: ClassVar[str] = "anchor_product_mode"
+            key: ClassVar[str] = "manufacturer"
 
         class SpecifiedProduct:
             label: ClassVar[str] = "Specified Product"
@@ -197,14 +197,14 @@ class LoadingParams(Params):
             options: ClassVar[tuple[str, str]] = ("Individual Anchors", "Group Origin")
             placeholder: ClassVar[str] = "Select..."
             index: ClassVar[int] = 0
-            key: ClassVar[str] = "anchor_load_input_location"
+            key: ClassVar[str] = "location"
 
         class Seismic:
             label: ClassVar[str] = "Seismic Loading"
             options: ClassVar[tuple[bool, bool]] = (True, False)
             placeholder: ClassVar[str] = "Select..."
             index: ClassVar[int] = 0
-            key: ClassVar[str] = "seismic_loading"
+            key: ClassVar[str] = "seismic"
 
         class PhiOverride:
             label: ClassVar[str] = "Phi Override"
@@ -265,28 +265,28 @@ class BasePlate(Params):
             label: ClassVar[str] = "Base Plate Width (in)"
             min_value: ClassVar[float] = 0.0
             value: ClassVar[float] = 24.0
-            key: ClassVar[str] = "base_plate_width"
+            key: ClassVar[str] = "Bx"
 
         class By:
             label: ClassVar[str] = "Base Plate Length (in)"
             min_value: ClassVar[float] = 0.0
             value: ClassVar[float] = 24.0
-            key: ClassVar[str] = "base_plate_length"
+            key: ClassVar[str] = "By"
 
         class Mx:
             label: ClassVar[str] = "Moment X (lb-in)"
             value: ClassVar[float] = 0.0
-            key: ClassVar[str] = "moment x"
+            key: ClassVar[str] = "mx"
 
         class My:
             label: ClassVar[str] = "Moment Y (lb-in)"
             value: ClassVar[float] = 0.0
-            key: ClassVar[str] = "moment y"
+            key: ClassVar[str] = "my"
 
         class Mz:
             label: ClassVar[str] = "Moment Z (lb-in)"
             value: ClassVar[float] = 0.0
-            key: ClassVar[str] = "moment z"
+            key: ClassVar[str] = "mz"
 
 
 @dataclass

@@ -49,6 +49,13 @@ def save_design_to_session(design_params: DesignParameters):
 
     st.session_state["data_column"] = data_list
 
+def add_design_names_to_session(name: str):
+    """Add design names to session state"""
+    if "design_names" not in st.session_state:
+        st.session_state["design_names"] = []
+
+    st.session_state["design_names"].append(name)
+
 
 
 def get_saved_designs():
@@ -70,3 +77,5 @@ def update_active_design(design_params: DesignParameters):
 
     if len(st.session_state['data_column']) > 1:
         st.session_state['data_column'].pop(1)
+
+

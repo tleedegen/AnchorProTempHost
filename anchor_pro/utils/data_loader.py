@@ -7,6 +7,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from concrete_anchors import ConcreteAnchors
+from utils.constants import ANCHOR_PRO_BACKEND_PARAM_SS_KEYS
 
 @st.cache_data
 def load_anchor_spec_sheet() -> pd.DataFrame:
@@ -52,14 +53,9 @@ def anchor_pro_forces(df: pd.DataFrame):
     anchor_pro_force = df[['N', 'Vx', 'Vy']].to_numpy()[:, np.newaxis, :]
     return anchor_pro_force
 
-def anchor_pro_concrete_data(session_state_data_column: pd.Series) -> pd.Series:
+def anchor_pro_concrete_data(design: pd.Series) -> pd.Series:
     """All AnchorPro parameters sent to the backend are listed here"""
-    required_data: tuple = (
-        'Bx', 'By', 'fc', 'lw_factor', 'cracked_concrete', 'poisson', 't_slab',
-        'cx_neg', 'cx_pos', 'cy_neg', 'cy_pos', 'profile', 'anchor_position',
-        'weight_classification_base'
-    )
-    anchor_pro_series = pd.Series({k: session_state_data_column[k] for k in required_data})
+    anchor_pro_series = pd.Series({k: design[k] for k in ANCHOR_PRO_BACKEND_PARAM_SS_KEYS})
     return anchor_pro_series
 
 def anchor_pro_set_data():

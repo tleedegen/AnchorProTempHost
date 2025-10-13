@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Optional, ClassVar, Callable
+from typing import Any, Optional, ClassVar, Callable, Iterable
 import streamlit as st
 from core_functions.design_parameters import SubstrateParams, AnchorProduct, LoadingParams, InstallationParams, Params, BasePlate
+from utils.constants import ANCHOR_PRO_BACKEND_PARAM_SS_KEYS
+from utils.exceptions import DataColumnError
 
 @dataclass
 class WidgetSpecs:
@@ -250,16 +252,16 @@ class WidgetSpecs:
                 'deck_location': 'deck_location',
                 'hole_diameter': 'hole_diameter',
                 'face_side': 'face_side',
-                'anchor_product_mode': 'mode',
+                'manufacturer': 'manufacturer',
                 'specified_product': 'specified_product',
-                'anchor_load_input_location': 'location',
-                'seismic_loading': 'seismic',
+                'location': 'location',
+                'seismic': 'seismic',
                 'phi_override': 'phi_override',
-                'base_plate_width': 'Bx',
-                'base_plate_length': 'By',
-                'moment x': 'mx',
-                'moment y': 'my',
-                'moment z': 'mz'
+                'Bx': 'Bx',
+                'By': 'By',
+                'mx': 'mx',
+                'my': 'my',
+                'mz': 'mz'
             }
 
             data_col_key = data_key_mapping[self.key]
@@ -318,6 +320,44 @@ class WidgetSpecs:
                     st.session_state[data_name] = st.session_state['data_column'][0][data_name]
             st.session_state['global_widget_version_counter'] = st.session_state['global_version_counter']
 
-    def _update_data_column_on_widget_change(self):
-        """Update the data column with the current widget value"""
+
+def check_diff(design_index: int) -> bool:
+    """Return True if any anchor key's current value differs from the design value.
+
+    Raises:
+        DataColumnError: if data_column/design_index is invalid or required keys are missing.
+    """
+    ss = st.session_state
+
+    # Validate container and index
+    try:
+        data_col = ss['data_column']
+    except KeyError as e:
+        raise DataColumnError("Key 'data_column' not found in session state.") from e
+
+    try:
+        design = data_col[design_index]
+    except IndexError as e:
+        raise DataColumnError(f"design_index {design_index} out of range.") from e
+
+    # Validate required keys exist in both places
+    keys_to_check = [k for k in ANCHOR_PRO_BACKEND_PARAM_SS_KEYS if k != 'lw_factor']
+    missing = [
+        k for k in keys_to_check
+        if k not in ss or k not in design
+    ]
+    if missing:
+        raise DataColumnError(f"Missing keys in session or design: {missing}")
+
+    # Return whether any key differs
+    return any(ss[k] != design[k] for k in ANCHOR_PRO_BACKEND_PARAM_SS_KEYS)
+
+
+
+def copy_design_params_to_widgets(design_index: int):
+    """Update the data column with the current widget value"""
+    if check_diff(design_index):
+        for anchor_key in ANCHOR_PRO_BACKEND_PARAM_SS_KEYS:
+            st.session_state[anchor_key] = st.session_state['data_column'][design_index][anchor_key]
+    else:
         pass

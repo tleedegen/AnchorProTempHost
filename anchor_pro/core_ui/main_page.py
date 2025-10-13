@@ -1,5 +1,5 @@
 import streamlit as st
-from core_functions.visualizations import render_visualizations, render_project_designs_table, render_dynamic_design_table
+from core_functions.visualizations import render_visualizations, render_project_designs_table, render_dynamic_design_table, render_demand_capacity_ratio_table
 from core_functions.save_project import render_save_load_section
 from utils.session_state import app_setup, update_active_design, initialize_default_data_column
 from utils.data_loader import anchor_pro_set_data
@@ -15,7 +15,7 @@ def render_main_page():
 
     render_dynamic_design_table()
     render_project_designs_table()
-
+    render_demand_capacity_ratio_table()
 
     render_save_load_section()
     st.markdown("---")

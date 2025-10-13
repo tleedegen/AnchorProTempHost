@@ -12,7 +12,7 @@ def render_anchor_data_editor() -> Anchor:
 
         anchor_table = st.empty()
         anchor_buttons = st.empty()
-        
+
         # Initialize with empty dataframe if not exists
         if "anchor_data" not in st.session_state:
             st.session_state.anchor_data = pd.DataFrame({
@@ -47,7 +47,7 @@ def render_anchor_data_editor() -> Anchor:
                 if st.button("Clear All Anchors", key="btn_clear_anchors"):
                     st.session_state['data_column'][0]['anchor_geometry_forces'] = pd.DataFrame({
                         'X': [0.0],
-                        'Y': [0.0], 
+                        'Y': [0.0],
                         'Vx': [0.0],
                         'Vy': [0.0],
                         'N': [0.0]
