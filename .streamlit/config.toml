@@ -1,0 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#38b41fff"        # A professional blue (Degenkolb-esque) for accents/buttons
+backgroundColor = "#0E1117"     # Deep dark background
+secondaryBackgroundColor = "#262730" # Slightly lighter background for sidebars/widgets
+textColor = "#FAFAFA"           # High contrast white/off-white text
+font = "sans serif"             # Clean standard font

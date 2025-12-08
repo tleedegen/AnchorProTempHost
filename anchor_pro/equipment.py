@@ -7,13 +7,15 @@ import json
 import pandas as pd
 from scipy.optimize import root, broyden1, newton_krylov
 
+
+
+
 # import warnings
 from functools import partial
 
-
 from anchor_pro.utilities import Utilities
 from anchor_pro.concrete_anchors import ConcreteCMU, ConcreteAnchors, CMUAnchors
-from anchor_pro.wood_fasteners import WoodFastener
+from anchor_pro.elements.wood_fasteners import WoodFastener
 
 
 def root_solver_worker(queue, residual_func, u_init, p, root_kwargs):
@@ -43,8 +45,37 @@ def solve_equilibrium_with_timeout(residual_func, u_init, p, timeout=5, **root_k
         print('Analysis timeout occurred')
         return np.zeros_like(u_init), False
 
+# @dataclass(slots=True)
+# class ModelElements:
+#     floor_plates: Optional[List[FloorPlateElement]]
+#     base_anchors: Optional[Union[WoodFastener, ConcreteAnchors]]
+#     base_straps: Optional[List[BaseStrap]]
+#
+#     wall_brackets: Optional[List[WallBracketElement]]
+#     wall_backing: Optional[List[WallBackingElement]]
+#     wall_anchors: Optional[List[SupportedWallAnchors]]
+#
+#     # Old map giving backing elements for each wall. May not be necessary anymore
+#     #backing_indices = {'X+': [], 'X-': [], 'Y+': [], 'Y-': []}
+#     self.wall_anchors = {'X+': None, 'X-': None, 'Y+': None, 'Y-': None}
+
+def get_max_demand(el_vs_theta_matrix):
+    idx_anchor, idx_theta = np.unravel_index(np.argmax(el_vs_theta_matrix), el_vs_theta_matrix.shape)
+    return idx_anchor, idx_theta
 
 class EquipmentModel:
+    WALL_NORMAL_VECTORS = {'X+': (-1, 0, 0),
+                           'X-': (1, 0, 0),
+                           'Y+': (0, -1, 0),
+                           'Y-': (0, 1, 0)}
+
+    ATTACHMENT_NORMAL_VECTORS = {'X+': (1, 0, 0),
+                                 'X-': (-1, 0, 0),
+                                 'Y+': (0, 1, 0),
+                                 'Y-': (0, -1, 0),
+                                 'Z+': (0, 0, 1),
+                                 'Z-': (0, 0, -1)}
+
 
     def __init__(self):
         '''User Input Parameters'''
@@ -80,7 +111,6 @@ class EquipmentModel:
         self.profile_base = None  # Profile of concrete member at base
         self.base_material = None
 
-        self.anchor_pattern = None
         self.base_anchor_id = None
         self.base_anchor_group = None
 
@@ -143,6 +173,9 @@ class EquipmentModel:
         self._u_previous = None
         self.converged = []
         self.cor_coordinates = None  # Center of Rigidity Coordinates Dictionary
+        self._u_full = None
+        self.u_init = None
+        self.residual_call_count = None
 
         # Results
         self.theta_z = None  # List of angles at which horizontal load is applied
@@ -175,9 +208,9 @@ class EquipmentModel:
                 setattr(self, key, equipment_data.at[key])
 
         # Manual Corrections
-        if not self.ex:
+        if self.ex is None or np.isnan(self.ex):
             self.ex = 0
-        if not self.ey:
+        if self.ey is None or np.isnan(self.ey):
             self.ey = 0
 
         # Append full file path to front and end matter references:
@@ -215,7 +248,7 @@ class EquipmentModel:
             self.code_pars['Ax'] = None
         elif self.code_edition == 'ASCE 7-22 OPM':
             self.code_pars['Cpm'] = equipment_data['Cpm']
-            self.code_pars['Cv'] = equipment_data['Cpm']
+            self.code_pars['Cv'] = equipment_data['Cv']
             self.code_pars['omega'] = equipment_data['omega_opm']
 
         # Base Anchored and Wall Bracket Installation Type
@@ -361,6 +394,10 @@ class EquipmentModel:
                         faying_local_vector = (np.cos(faying_local_angle), np.sin(faying_local_angle))
                         faying_global_vector = Utilities.transform_vectors([faying_local_vector],
                                                                            rotation_angle, reflection_angle)[0]
+                        local_z = (*faying_global_vector, 0)
+                        local_y = (0, 0, 1)  # Assumes connection element if vertical
+                        local_x = np.cross(local_y, local_z)
+
                         if np.isclose(faying_global_vector[0], 0):
                             B = self.By
                         elif np.isclose(faying_global_vector[1], 0):
@@ -371,7 +408,7 @@ class EquipmentModel:
                         h = data['H'] + data['Hr'] * self.H
                         if w == 0:
                             raise Exception(
-                                "For base plate attachments with fasteners, you must specify aboslute dimension for fastener pattern or place floor plates orthogonal to reference box")
+                                "For base plate attachments with fasteners, you must specify absolute dimension for fastener pattern or place floor plates orthogonal to reference box")
 
                         L_horiz = w - 2 * data['X Edge']
                         L_vert = h - 2 * data['Y Edge']
@@ -388,9 +425,10 @@ class EquipmentModel:
 
                         plate.connection = SMSHardwareAttachment(w, h, xy_points, df_sms,
                                                                  centroid=(xc, yc, zc),
-                                                                 normal_vector=(*faying_global_vector, 0),
-                                                                 x_offset=x_offset,
-                                                                 y_offset=y_offset)
+                                                                 local_x=local_x,
+                                                                 local_y=local_y,
+                                                                 local_z=local_z)
+
                         gauge = self.gauge_equip if self.gauge_equip is not None else 18
                         fy = self.fy_equip if self.fy_equip is not None else 33
                         plate.connection.anchors_obj.set_sms_properties(gauge, fy)
@@ -418,6 +456,10 @@ class EquipmentModel:
                                                                           layout['Yr'],
                                                                           layout['Rotation'],
                                                                           layout['Reflection']):
+                    for par in [x, y, xr, yr]:
+                        if isinstance(par, str):
+                            par = float(par)
+
                     translation = np.array([x + xr * self.Bx,
                                             y + yr * self.By])
 
@@ -440,18 +482,6 @@ class EquipmentModel:
                                                            poisson=poisson))
 
     def wall_bracket_backing_anchors_from_json(self, equipment_data, df_fasteners, df_sms):
-
-        wall_normal_vectors = {'X+': (-1, 0, 0),
-                               'X-': (1, 0, 0),
-                               'Y+': (0, -1, 0),
-                               'Y-': (0, 1, 0)}
-
-        attachment_normal_vectors = {'X+': (1, 0, 0),
-                                     'X-': (-1, 0, 0),
-                                     'Y+': (0, 1, 0),
-                                     'Y-': (0, -1, 0),
-                                     'Z+': (0, 0, 1),
-                                     'Z-': (0, 0, -1)}
 
         b_dimension = {'X+': self.By,
                        'X-': self.By,
@@ -490,28 +520,38 @@ class EquipmentModel:
             x0 = bracket['X'] + bracket['Xr'] * self.Bx
             y0 = bracket['Y'] + bracket['Yr'] * self.By
             z0 = bracket['Z'] + bracket['Zr'] * self.H
-            xyz_0 = (x0, y0, z0)
+            xyz_equipment = np.array((x0, y0, z0))
 
             # Wall Normal Vector
             supporting_wall = bracket['Supporting Wall']
-            normal_vec = wall_normal_vectors[supporting_wall]
+            normal_vec = EquipmentModel.WALL_NORMAL_VECTORS[supporting_wall]
 
             # Calculate Bracket Centerline Point with Connection Offset
-            attachment_normal_vec = np.array([attachment_normal_vectors[supporting_wall]])
-            cxn_offset = json_data['attachment_offset']
-            x_offset, y_offset, z_offset = (attachment_normal_vec * cxn_offset + np.array(xyz_0))[0]
-            xyz_offset = (x_offset, y_offset, z_offset)
+            # attachment_normal_vec = np.array([EquipmentModel.ATTACHMENT_NORMAL_VECTORS[supporting_wall]])
+            # cxn_offset = json_data['attachment_offset']  #todo: remove
+            # x_offset, y_offset, z_offset = (attachment_normal_vec * cxn_offset + np.array(xyz_0))[0]
+            # xyz_offset = (x_offset, y_offset, z_offset)
+
+            z_offset = bracket['Plate Y Offset']
 
             wall_gap = 0 if not self.wall_offsets[supporting_wall] else self.wall_offsets[supporting_wall]
             backing_depth = bracket['D']
             if supporting_wall == 'X+':
-                xyz_f = (0.5 * self.Bx + (wall_gap - backing_depth), y_offset, z_offset)
+                xyz_wall = np.array((0.5 * self.Bx + (wall_gap - backing_depth), y0, z0))
+                x_offset = 0
+                y_offset = -bracket['Plate Y Offset']
             elif supporting_wall == 'X-':
-                xyz_f = (-0.5 * self.Bx - (wall_gap - backing_depth), y_offset, z_offset)
+                xyz_wall = np.array((-0.5 * self.Bx - (wall_gap - backing_depth), y0, z0))
+                x_offset = 0
+                y_offset = bracket['Plate Y Offset']
             elif supporting_wall == 'Y+':
-                xyz_f = (x_offset, 0.5 * self.By + (wall_gap - backing_depth), z_offset)
+                xyz_wall = np.array((x0, 0.5 * self.By + (wall_gap - backing_depth), z0))
+                x_offset = bracket['Plate X Offset']
+                y_offset = 0
             elif supporting_wall == 'Y-':
-                xyz_f = (x_offset, -0.5 * self.By - (wall_gap - backing_depth), z_offset)
+                xyz_wall = np.array((x0, -0.5 * self.By - (wall_gap - backing_depth), z0))
+                x_offset = -bracket['Plate X Offset']
+                y_offset = 0
             else:
                 raise Exception('Supporting Wall Incorrectly Defined')
 
@@ -524,8 +564,9 @@ class EquipmentModel:
             wall_flexibility = (a ** 2 + b ** 2) / (3 * E * I * L)  # Wall idealized as simple span
 
             self.wall_brackets.append(
-                WallBracketElement(supporting_wall, xyz_0, xyz_f, normal_vec, wall_flexibility,
-                                   releases=releases, xyz_offset=xyz_offset, e_cxn=cxn_offset))
+                WallBracketElement(supporting_wall, xyz_equipment, xyz_wall, normal_vec, wall_flexibility,
+                                   releases=releases,
+                                   backing_offset_x=x_offset, backing_offset_y=y_offset, backing_offset_z=z_offset))
 
             # Create Bracket Connection Elements
             if json_data['check_fasteners']:
@@ -533,9 +574,17 @@ class EquipmentModel:
                 fastener_pattern = json_data["fastener_geometry"]
                 data = df_fasteners.loc[fastener_pattern]
                 try:
-                    faying_global_vector = attachment_normal_vectors[bracket['Attachment Normal']]
+                    local_z = EquipmentModel.ATTACHMENT_NORMAL_VECTORS[bracket['Attachment Normal']]
+                    if bracket['Attachment Normal'] in ['X+', 'Y+', 'X-', 'Y-']:
+                        local_y = (0,0,1)
+                        local_x = np.cross(local_y,local_z)
+                    else:
+                        local_x = -1*np.array(EquipmentModel.WALL_NORMAL_VECTORS[bracket_obj.supporting_wall])
+                        local_y = np.cross(local_z,local_x)
                 except:
                     raise Exception("Must specify wall bracket attachment normal direction.")
+
+
 
                 B = 0  # Note, wall brackets are set to ignore any relative dimension
                 w = data['W'] + data['Wr'] * B
@@ -559,7 +608,10 @@ class EquipmentModel:
 
                 bracket_obj.connection = SMSHardwareAttachment(w, h, xy_points, df_sms,
                                                                centroid=(x0, y0, z0),
-                                                               normal_vector=faying_global_vector)
+                                                               local_x=local_x,
+                                                               local_y=local_y,
+                                                               local_z=local_z)
+
                 gauge = self.gauge_equip if self.gauge_equip is not None else 18
                 fy = self.fy_equip if self.fy_equip is not None else 33
                 bracket_obj.connection.anchors_obj.set_sms_properties(gauge, fy)
@@ -595,8 +647,9 @@ class EquipmentModel:
         if wall_type in ['Concrete', 'CMU']:
             for wall_position in supporting_walls:
                 # Collect anchor points from all wall anchors
+
                 xy_anchors = np.concatenate(
-                    [plate.pz_anchors + plate.centroid for plate in
+                    [plate.pz_anchors + (plate.global_to_local_transformation@plate.centroid)[0:2] for plate in
                      [self.wall_backing[i] for i in self.backing_indices[wall_position]]], axis=0)
 
                 self.include_overstrength = True  # todo: [Calc Refinement] Define when overstrength can be omitted
@@ -618,11 +671,11 @@ class EquipmentModel:
                     condition_y = 'Condition 1'
 
                 if backing.backing_type == 'Wall Backing (Strut)' and backing.w > backing.h:
-                    condition_y = 'Condition 4'  # todo: [Refine SMS Prying] could add check to verify if shear is perpendicular to axis of strut.
+                    condition_y = 'Condition 4'
                 elif backing.backing_type == 'Wall Backing (Strut)' and backing.h > backing.w:
                     condition_x = 'Condition 4'
 
-                backing.anchors_obj = SMSAnchors(wall_data=wall_data, xy_anchors=backing.pz_anchors,
+                backing.anchors_obj = SMSAnchors(wall_data=wall_data,
                                                               backing_type=backing.backing_type, df_sms=df_sms,
                                                               condition_x=condition_x, condition_y=condition_y)
 
@@ -644,7 +697,7 @@ class EquipmentModel:
         wb = backing_data['W'] + backing_data['Wr'] * b  # Width of bracket
         hb = backing_data['H'] + backing_data['Hr'] * self.H  # Height of bracket
         db = backing_data['D']
-        L_horiz = wb - 2 * backing_data['X Edge']
+        L_horizontal = wb - 2 * backing_data['X Edge']
         L_vert = hb - 2 * backing_data['Y Edge']
         y_offset = backing_data['Y Offset']
         x_offset = backing_data['X Offset']
@@ -655,12 +708,14 @@ class EquipmentModel:
         fy = backing_data['Steel Fy']
 
         manual_points_json = backing_data['Manual Points']
+        if manual_points_json is np.nan:
+            raise Exception(f'The specified wall backing for {self.equipment_id} is not found the fastener patterns list.')
         manual_points = json.loads(manual_points_json)
         manual_x = manual_points['x']
         manual_y = manual_points['y']
 
         xy_anchor_points = Utilities.compute_backing_xy_points(backing_data['X Number'], backing_data['Y Number'],
-                                                               L_horiz, L_vert, x_offset, y_offset,
+                                                               L_horizontal, L_vert, x_offset, y_offset,
                                                                place_by_horiz=place_by_horiz,
                                                                place_by_vert=place_by_vert,
                                                                manual_x=manual_x,
@@ -670,12 +725,23 @@ class EquipmentModel:
 
         # Convert Bracket locations from global XYZ coordinates to local NPZ Coordinates
         npz_brackets = np.array(
-            [bracket.G @ bracket.xyz_0 for bracket in [self.wall_brackets[i] for i in bracket_indices]])
+            [bracket.G @ bracket.xyz_backing for bracket in [self.wall_brackets[i] for i in bracket_indices]])
         pz_brackets = npz_brackets[:, [1, 2]]
         pz_cent = np.mean(pz_brackets, axis=0)
+        xy_brackets_local = pz_brackets - pz_cent
+        centroid_in_global_coordinates = np.mean(np.array([bracket.xyz_backing
+                                                           for bracket in [self.wall_brackets[i] for i in bracket_indices]]),axis=0)
+        local_z = EquipmentModel.WALL_NORMAL_VECTORS[supporting_wall]
+        local_y = (0,0,1)
+        local_x = np.cross(local_y,local_z)
+
         self.wall_backing.append(
-            WallBackingElement(wb, hb, db, xy_anchor_points, pz_brackets, bracket_indices, supporting_wall,
-                               backing_type=backing_type, centroid=pz_cent,fy=fy, t_steel=t_steel))
+            WallBackingElement(wb, hb, db, xy_anchor_points, xy_brackets_local, bracket_indices, supporting_wall,
+                               backing_type=backing_type, centroid=centroid_in_global_coordinates,
+                               local_x=local_x,
+                               local_y=local_y,
+                               local_z=local_z,
+                               fy=fy, t_steel=t_steel))
 
     def number_degrees_of_freedom(self):
         """Numbers the degrees of freedom, including additional DOFs for floor plates with moment releases."""
@@ -950,6 +1016,7 @@ class EquipmentModel:
 
     def get_load_vector(self, theta_z):
         """ Return a load vector in the form: [Vx, Vy, N, Mx, My, T].
+        Load vector corresponds only to first six primary dofs. It is assumed all other dofs are zero.
         Assumes self.calculate_factored_loads has been previously called."""
         #  Loads at basic DOFs
         vx = self.Fh * math.cos(theta_z)
@@ -959,11 +1026,10 @@ class EquipmentModel:
         my = vx * self.zCG - fz * self.ex
         t = -vx * self.ey + vy * self.ex
 
-        # Zero applied moment at additional floor-plate DOFs
         p = np.zeros(self.n_dof)
 
         # Load Vector
-        p[0:6] = np.array([vx, vy, fz, mx, my, t])
+        p[0:6] = [vx, vy, fz, mx, my, t]
 
         return p
 
@@ -1000,8 +1066,8 @@ class EquipmentModel:
 
 
     def get_center_of_rigidity(self):
-        # u0 = 1 * np.eye(self.n_dof)
-        # for dof, u_dof in enumerate(u0[0:2, :]):
+
+
 
         cor_coordinates = {'x_displacement':{1:None,
                                              -1:None},
@@ -1013,13 +1079,13 @@ class EquipmentModel:
         u_vecs = np.eye(self.n_dof,3)
 
         ''' Center of Rigidity coordinates are computed generally as m/p,
-                        where m is a relevant component of moment (mx, my, or mz).
-                        for a force in x-direction: cor = (0, -mz/px, my/px),
-                         for a force in y-direction: cor = (mz/py, 0, -mx / py),
-                         for a force in z-direction: cor = (-my/pz, mx / pz, 0).
+            where m is a relevant component of moment (mx, my, or mz).
+            for a force in x-direction: cor = (0, -mz/px, my/px),
+            for a force in y-direction: cor = (mz/py, 0, -mx / py),
+            for a force in z-direction: cor = (-my/pz, mx / pz, 0).
                         
-                        For consiceness in the code, this is computed by extracting the signs of the various terms,
-                        and the index of the relevant moment component into lists which can be iterated over.'''
+            For conciseness in the code, this is computed by extracting the signs of the various terms,
+            and the index of the relevant moment component into lists which can be iterated over.'''
 
         moment_term_signs = [np.array([0, -1, 1]),
                              np.array([1, 0, -1]),
@@ -1067,7 +1133,9 @@ class EquipmentModel:
 
     def get_initial_dof_guess(self, theta_z):
         """ Returns an initial guess for the DOF displacements U0 = [dx, dy, dz, rx, ry, rz, ...]"""
-        u_init_list = [self._center_of_rigidity_based_dof_guess(theta_z),  # Initial guess at given angle
+
+        u_init_list = [self._center_of_rigidity_based_dof_guess(theta_z, rot_magnitude=0.01/min(self.Bx,self.By)),# Initial guess at given angle
+                       self._center_of_rigidity_based_dof_guess(theta_z, rot_magnitude=1e-7),
                        self._center_of_rigidity_based_dof_guess(theta_z + np.pi / 16),  # At perturbed angle
                        self._center_of_rigidity_based_dof_guess(theta_z - np.pi / 16)]
 
@@ -1117,7 +1185,7 @@ class EquipmentModel:
         u = np.linalg.solve(self.initial_stiffness_matrix_UNUSED(), p)
         return u
 
-    def _center_of_rigidity_based_dof_guess(self,theta):
+    def _center_of_rigidity_based_dof_guess(self,theta, disp_magnitude=1e-6, rot_magnitude=1e-6):
         p = self.get_load_vector(theta)
 
         u = np.zeros(self.n_dof)
@@ -1129,19 +1197,22 @@ class EquipmentModel:
         sign_fy = 1 if fy >= 0 else -1
         sign_fz = 1 if fz >= 0 else -1
 
-        cor_x = self.cor_coordinates['x_displacement'][sign_fx]
-        cor_y = self.cor_coordinates['y_displacement'][sign_fy]
-        cor_z = self.cor_coordinates['z_displacement'][sign_fz]
+        cor_x = self.cor_coordinates['x_displacement'][sign_fx]  # COR for displacement in x-direction
+        cor_y = self.cor_coordinates['y_displacement'][sign_fy]  # COR for displacement in y-direction
+        cor_z = self.cor_coordinates['z_displacement'][sign_fz]  # COR for displacement in z-direction
 
         mx = (cor_y[2] - self.zCG) * fy - (cor_z[1] - self.ey) * fz
         my = -(cor_x[2] - self.zCG) * fx + (cor_z[0] - self.ex) * fz
         mz = (cor_x[1] - self.ey) * fx - (cor_y[0] - self.ex) * fy
         m_array = np.array((mx, my, mz))
-        unit_rot = m_array / np.linalg.norm(m_array)
-        rx, ry, rz = 1e-7 * unit_rot
 
+        # Apply DOF Rotations proportional to moments about COR
+        unit_rot = m_array / np.linalg.norm(m_array)
+        rx, ry, rz = rot_magnitude * unit_rot
+
+        # Apply DOF translations are proportional to applied forces such that rotation occurs about COR
         unit_disp = p[0:3] if p[0:3].sum() == 0 else p[0:3] / np.linalg.norm(p[0:3])
-        cor_disp = 1e-6 * unit_disp
+        cor_disp = disp_magnitude * unit_disp
 
         y, z = cor_x[1:]
         dx = cor_disp[0] -z * ry + y * rz
@@ -1158,6 +1229,15 @@ class EquipmentModel:
 
         # Compute Floor Plate DOF initial guesses
         for dof_map, plate in zip(self.floor_plate_dofs, self.floor_plates):
+
+            # # NEW METHOD
+            # if len(plate.free_dofs)>0:
+            #     u_free, success = plate.solve_released_dof_equilibrium(u, dof_map)
+            #     if success:
+            #         u[dof_map[plate.free_dofs]] = u_free
+
+
+            ## OLD METHOD
             dzp = dz + plate.yc * rx - plate.xc * ry  # z-displacement at (xc,yc)
 
             # # Handle Vertical Releases
@@ -1347,6 +1427,76 @@ class EquipmentModel:
 
         return k
 
+    def equilibrium_residual_6_dof(self, u, p, stiffness_update_threshold=0.01, penalty_factor=1e3, verbose=False):
+        """Returns the residual for the equilibrium equation p = ku
+        stiffness_update_threshold indicates percentage of dof norm change at which stiffness matrix should be updated.
+        pentalty factor is applided to zero-force dof residuals to ensure better convergence"""
+
+
+        # load_vector_weights = np.ones(self.n_dof)
+        # load_vector_weights += 20 * np.array(self.disp_dofs)
+        load_vector_weights = np.array([20, 20, 20, 1, 1, 1])
+        disp_vector_weights = np.array([1, 1, 1, 0.1, 0.1, 0.1])
+
+        # Penalty to prevent "run-away" dofs
+        disp_limit = 10
+        rotation_limit = 1
+
+        # disp_indices = np.where(np.array(self.disp_dofs) == 1)[0]
+        # rot_indices = np.where(np.array(self.disp_dofs) == 0)[0]
+
+        # Extract corresponding u values
+        disp_values = u[0:3]
+        rot_values = u[3:6]
+
+        # Apply penalty logic
+        disp_excess = np.maximum(0, np.abs(disp_values) - disp_limit)
+        rot_excess = np.maximum(0, np.abs(rot_values) - rotation_limit)
+
+        # Define a quadratic penalty for each DOF
+        penalty_disp = 1e6 * disp_excess ** 2
+        penalty_rot = 1e6 * rot_excess ** 2
+        penalty_vector = np.zeros(6)
+        penalty_vector[0:3] = penalty_disp
+        penalty_vector[3:6] = penalty_rot
+
+        # Penalty on zero-force DOFs
+        zero_force_mask = np.isclose(p, 0, 1e-10)
+        load_vector_weights[zero_force_mask] = load_vector_weights[zero_force_mask]*penalty_factor
+
+        # Solve for independent DOFs
+        self._u_full = np.zeros(self.n_dof)
+        self._u_full[0:6] = u
+        for dof_map, plate in zip(self.floor_plate_dofs, self.floor_plates):
+            u_free, success = plate.solve_released_dof_equilibrium(self._u_full, dof_map,
+                                                                   u_free_init=self.u_init[dof_map[plate.free_dofs]])
+            if success:
+                self._u_full[dof_map[plate.free_dofs]] = u_free
+            else:
+                print('Warning: base plate free dof failed to converge')
+
+        # Update Stiffness Matrix for large change in norm of u or if any base anchors have reversed signs
+        if self.K is None or self._u_previous is None:
+            update_K = True  # First iteration, always update K
+        else:
+            norm_change = np.linalg.norm(disp_vector_weights * u - disp_vector_weights * self._u_previous[0:6]) / \
+                          (np.linalg.norm(disp_vector_weights * self._u_previous[0:6]) + 1e-12)
+            norm_change_trigger = norm_change > stiffness_update_threshold
+            update_K = norm_change_trigger  # or anchor_change_trigger
+
+        self.residual_call_count += 1
+        if self.residual_call_count % 10 == 0:
+            update_K = True
+
+        if update_K:
+            self.K = self.update_stiffness_matrix(self._u_full)
+            self._u_previous = self._u_full.copy()
+
+        residual = load_vector_weights * (np.dot(self.K[0:6,:], self._u_full) - p) + penalty_vector
+        if verbose:
+            print(f'Norm: {np.linalg.norm(residual):.3e}, Update K: {update_K}, Penalties: {penalty_vector}')
+        return residual
+
     def equilibrium_residual(self, u, p, stiffness_update_threshold=0.01, penalty_factor=1e3, verbose=False):
         """Returns the residual for the equilibrium equation p = ku
         stiffness_update_threshold indicates percentage of dof norm change at which stiffness matrix should be updated.
@@ -1375,7 +1525,7 @@ class EquipmentModel:
 
         self.residual_call_count+=1
         if self.residual_call_count % 10 == 0:
-            upda_K = True
+            update_K = True
 
         if update_K:
             self.K = self.update_stiffness_matrix(u)
@@ -1416,13 +1566,30 @@ class EquipmentModel:
         sol = newton_krylov(lambda u: self.equilibrium_residual(u, p), u_init, method='lgmres')
         return sol, np.linalg.norm(self.equilibrium_residual(sol, p)) < 1e-6
 
+    def solve_equilibrium_6_dof(self, p):
+        p_primary = p[0:6]
+        u_primary_init = self.u_init[0:6]
+        res = None
+        methods = ['hybr']
+        for method in methods:
+            self._u_previous = None
+            self.residual_call_count = 0
+            res = root(self.equilibrium_residual, u_primary_init, args=p_primary, method=method, #xtol=1e-8,
+                       options={'maxfev': 200,'xtol':1e-6})
+            if res.success:
+                # print(f'Success with {res.nfev} function calls')
+                break
+        self._u_full[0:6] = res.x
+        sol = self._u_full
+        return sol, res.success
+
     def solve_equilibrium(self, u_init, p):
         methods = ['hybr']
         for method in methods:
             self._u_previous = None
             self.residual_call_count = 0
             res = root(self.equilibrium_residual, u_init, args=p, method=method, #xtol=1e-8,
-                       options={'maxfev': 200,'xtol':1e-8})
+                       options={'maxfev': 200,'xtol':1e-6})
             if res.success:
                 # print(f'Success with {res.nfev} function calls')
                 break
@@ -1445,7 +1612,7 @@ class EquipmentModel:
         return sol, success
 
     def solve_equilibrium_broyden_OLD(self, u_init, p):
-        sol = broyden1(lambda u_i: self.equilibrium_residual(u_i, p), u_init, f_tol=1e-1, verbose=True)
+        sol = broyden1(lambda u_i: self.equilibrium_residual(u_i, p), u_init, f_tol=1e-1, verbose=False)
         success = np.linalg.norm(self.equilibrium_residual(sol, p)) < 1e-1
         return sol, success
 
@@ -1473,17 +1640,20 @@ class EquipmentModel:
             for j, u_init in enumerate(u_tries):
                 # if verbose:
                 #     print(f'Theta {np.degrees(t):.2f} trying with u guess {j}')
+                self.u_init = u_init
                 sol, success = self.solve_equilibrium(u_init, p)
+                self.equilibrium_solutions[:, i] = sol  # todo: this line is for testing. Delete and uncomment below
                 if success:
                     if verbose:
                         print(f'Theta {np.degrees(t):.0f} success with initial u guess {j}')
-                    self.equilibrium_solutions[:, i] = sol
+                    # self.equilibrium_solutions[:, i] = sol
                     u_prev = sol
                     try_previous_converged = True
                     break
 
             if not success and verbose:
-                print(f'Theta {np.degrees(t):.0f} UNCONVERGED with initial u guess {j}')
+                pass
+                # print(f'Theta {np.degrees(t):.0f} UNCONVERGED with initial u guess {j}')
 
             self.converged.append(success)
 
@@ -1499,6 +1669,7 @@ class EquipmentModel:
                 u_tries = self.get_interpolated_dof_guess(idx)
                 success = False
                 for j, u_init in enumerate(u_tries):
+                    self.u_init = u_init
                     sol, success = self.solve_equilibrium(u_init, p)
                     if success:
                         if verbose:
@@ -1538,7 +1709,7 @@ class EquipmentModel:
 
         for backing in self.wall_backing:
             if backing.anchors_obj is not None:
-                backing.anchors_obj.anchor_forces = np.zeros((backing.anchors_obj.xy_anchors.shape[0],len(self.theta_z), 3))
+                backing.anchors_obj.anchor_forces = np.zeros((backing.pz_anchors.shape[0],len(self.theta_z), 3))
 
         for i, sol in enumerate(self.equilibrium_solutions.T):
 
@@ -1577,8 +1748,7 @@ class EquipmentModel:
     def get_governing_solutions(self):
         """Post Processes the element forces to identify the maximum demand and angle of loading"""
 
-        def get_max_demand(el_vs_theta_matrix):
-            return np.unravel_index(np.argmax(el_vs_theta_matrix), el_vs_theta_matrix.shape)
+
 
         # Base Anchors
         if self.base_anchors is not None:
@@ -1642,9 +1812,8 @@ class EquipmentModel:
             element.get_compression_resultants(sol)
 
             if element.connection:
-
-                element.connection.get_anchor_forces(*[-1*val for val in Utilities.transform_forces(
-                    element.connection_forces, element.connection.normal_vector)])
+                element.connection.get_anchor_forces(*[-1 * val for val in element.connection_forces],
+                                                     convert_to_local=True)
                 element.connection.anchors_obj.check_anchors(self.asd_lrfd_ratio)
 
         for element in self.base_straps:
@@ -1655,8 +1824,7 @@ class EquipmentModel:
             element.check_brackets()
 
             if element.connection:
-                element.compute_connection_forces()
-                element.connection.get_anchor_forces(*[-1*val for val in element.connection_forces])
+                element.connection.get_anchor_forces(*element.reactions_equipment,convert_to_local=True)
                 element.connection.anchors_obj.check_anchors(self.asd_lrfd_ratio)
 
         for wall_loc, indices in self.backing_indices.items():
@@ -1711,6 +1879,9 @@ class FloorPlateElement:
         self.release_zp = release_zp
         self.release_zn = release_zn
 
+        self.free_dofs = []
+        self.constrained_dofs = []
+
         # Stiffness Matrix Parameters
         self.C = None  # Constraint Matrix (global DOFs to local DOFs)
         self.B = np.array([[1, 0, 0, 0, 0, 0],  # Static Conversion Matrix (dofs to connection point)
@@ -1732,7 +1903,7 @@ class FloorPlateElement:
 
     def set_dof_constraints(self, n_dof, dof_map):
         """Initializes static (displacement-independent) matrices given the total global dofs and dof_map.
-         dof_map is a three element array indicating the index of the global DOFs at each local dofs"""
+         dof_map is a six element array indicating the index of the global DOFs at each local dofs"""
 
         """ Returns the constraint matrix (6 x n_dof) relating global DOFs to 6 element DOFs"""
 
@@ -1747,6 +1918,7 @@ class FloorPlateElement:
         self.C[1, 0:6] = [0, 1, 0, -self.z0, 0, self.x0]
         if dof_map[2] != 2:
             self.C[2, dof_map[2]] = 1
+
         else:
             self.C[2, 0:6] = [0, 0, 1, self.yc, -self.xc, 0]
         # todo: verify and revise. There should be coupling for rotation dofs when vertical dof is free on baseplate
@@ -1754,13 +1926,16 @@ class FloorPlateElement:
         self.C[4, dof_map[4]] = 1
         self.C[5, dof_map[5]] = 1
 
+        self.free_dofs = [i for i, dof in enumerate(dof_map) if i != dof]
+        self.constrained_dofs = [i for i, dof in enumerate(dof_map) if i == dof]
+
     def set_anchor_properties(self, anchors_object):
         """ Updates the anchor stiffness array [kx, ky, kz], and base material properties"""
         self.anchor_shear_stiffness = anchors_object.Kv
         self.anchor_tension_stiffness = anchors_object.K
 
     def set_sms_attachment_UNUSED(self, xy_anchors, ):
-        self.connection = SMSAnchors(xy_anchors=xy_anchors)
+        self.connection = SMSAnchors()
         self.connection.set_sms_properties()  # todo [Attachments, pass actual equipment values here]
 
     def update_anchor_stiffness_matrix(self, u, initial=False):
@@ -2001,8 +2176,8 @@ class FloorPlateElement:
             mx = p[3, :]
             my = p[4, :]
 
-            if not np.isclose(t.sum(), 0):
-                resultant_centroid = np.array([-my.sum() / t.sum(), mx.sum() / t.sum()])
+            if not np.isclose(tension_resultant, 0):
+                resultant_centroid = np.array([-my.sum() / tension_resultant, mx.sum() / tension_resultant])
             else:
                 resultant_centroid = np.nan
         else:
@@ -2087,31 +2262,58 @@ class FloorPlateElement:
         self.tnp = (4*Mu/(phi*self.yield_width*self.fu))
         self.t
 
+    def released_dof_residual(self, u_free, u_global, dof_map):
+        # Assemble dof vector
+        u = u_global
+        u[dof_map[self.free_dofs]] = u_free
+
+        # Update stiffness matrix
+        ke = self.get_element_stiffness_matrix(u)
+
+        # Return free-dof residual
+        residual = ke[self.free_dofs,:] @ u
+        return residual
+
+    def solve_released_dof_equilibrium(self, u_global, dof_map, u_free_init=None, verbose=False):
+        if u_free_init is None:
+                u_free_init = np.zeros(len(self.free_dofs))
+
+        methods = ['hybr']
+        for method in methods:
+            res = root(self.released_dof_residual, u_free_init, args=(u_global, dof_map), method=method, #xtol=1e-8,
+                       options={'maxfev': 200,'xtol':1e-6})
+            if res.success:
+                # print(f'Success with {res.nfev} function calls')
+                break
+        sol = res.x
+        if verbose:
+            print(res)
+        return sol, res.success
 
 if __name__ == '__main__':
     pass
 
 
 class WallBracketElement:
-    def __init__(self, supporting_wall, xyz_0, xyz_f, normal_unit_vector, wall_flexibility, brace_flexibility=None,
-                 horizontal_stiffness=None, vertical_stiffness=None, releases=None, xyz_offset=None, e_cxn=0):
+    def __init__(self, supporting_wall, xyz_equipment: np.array, xyz_wall: np.array,
+                 normal_unit_vector, wall_flexibility,
+                 horizontal_stiffness=None, vertical_stiffness=None, releases=None,
+                 backing_offset_x=0, backing_offset_y=0, backing_offset_z=0):
 
-        self.xyz_0 = xyz_0  # Coordinate along bracket centerline at connection offset.
-        self.xyz_f = xyz_f  # Coordinate at attachment to wall (or wall backing element)
-        if xyz_offset is None:
-            self.xyz_offset = xyz_0  # Coordinate at attachment to equipment unit
-        else:
-            self.xyz_offset = xyz_offset
-
+        # Geometry Attributes in Global Coordinates
+        self.xyz_equipment = xyz_equipment  # Coordinate at attachment to equipment
+        self.xyz_wall = xyz_wall  # Coordinate at wall along line normal to wall at xyz_equipment
+        self.xyz_backing = self.xyz_wall + (backing_offset_x, backing_offset_y, backing_offset_z)
         self.normal = normal_unit_vector
+
         self.supporting_wall = supporting_wall
 
-        self.length = math.sqrt(sum((f - i) ** 2 for f, i in zip(xyz_offset, xyz_f)))
+        self.length = math.sqrt(sum((f - i) ** 2 for f, i in zip(xyz_equipment, xyz_wall)))
 
-        # Bracket Properties
+        # Bracket Hardware Properties
         self.bracket_id = None
         self.f_wall = wall_flexibility
-        self.f_brace = brace_flexibility
+        self.f_brace = None
         self.kp = horizontal_stiffness
         self.kz = vertical_stiffness
         self.capacity_method = None
@@ -2120,13 +2322,12 @@ class WallBracketElement:
         self.capacity_to_backing = None
         self.shear_capacity = None
         self.connection = None
-        self.e_cxn = e_cxn  # Eccentricity of bracket center-line normal to connection faying surface
-        self.connection_forces = None
+        # self.e_cxn = e_cxn  # Eccentricity of bracket center-line normal to connection faying surface
 
+        # Element Analysis Properties
         self.releases = releases
-        
 
-        x, y, z = self.xyz_0
+        x, y, z = self.xyz_equipment
         self.C = np.array([[1, 0, 0, 0, z, -y],
                            [0, 1, 0, -z, 0, x],
                            [0, 0, 1, y, -x, 0]])
@@ -2136,14 +2337,11 @@ class WallBracketElement:
                            [-ny, nx, 0],
                            [0, 0, 1]])
 
-        # self.k_br = None
-        # self.K = None
-
-        if brace_flexibility is not None:
-            self.set_bracket_properties(brace_flexibility,
-                                        horizontal_stiffness, vertical_stiffness)
-
+        # Results Properties
+        self.connection_forces = None
         self.bracket_forces = {}
+        self.reactions_backing = None  # Reactions at backing in global coordinates (fx, fy, fz, mx, my, mz)
+        self.reactions_equipment = None  # Reactions at connection in global coordinates (fx, fy, fz, mx, my, mz)
         self.tension_dcr = None
 
     def set_dof_constraints(self, n_dof):
@@ -2160,40 +2358,7 @@ class WallBracketElement:
         self.shear_capacity = bracket_data['shear_capacity']
         self.capacity_method = bracket_data['capacity_method']
         self.asd_lrfd_ratio = asd_lrfd_ratio
-        
 
-    def get_element_stiffness_matrix_OLD(self, u=None):
-        """ Returns a 6x6 stiffness matrix for the primary degrees of freedom"""
-        kn = 1 / (self.f_wall + self.f_brace)
-        kp = self.kp
-        kz = self.kz
-
-        if any(self.releases) and (u is not None):
-            delta = np.linalg.multi_dot((self.G, self.C, u))
-
-            # Check Normal Direction
-            if delta[0] > 0 and self.releases[0]:
-                kn = 0
-            if delta[0] < 0 and self.releases[1]:
-                kn = 0
-
-            # Check Parallel to Wall axis
-            if delta[1] > 0 and self.releases[2]:
-                kp = 0
-            if delta[1] < 0 and self.releases[3]:
-                kp = 0
-
-            # Check Z axis
-            if delta[2] > 0 and self.releases[4]:
-                kz = 0
-            if delta[2] < 0 and self.releases[5]:
-                kz = 0
-
-        self.k_br = np.array([[kn, 0, 0],
-                              [0, kp, 0],
-                              [0, 0, kz]])
-        self.K = np.linalg.multi_dot((self.C.T, self.G.T, self.k_br, self.G, self.C))
-        return self.K
 
     def get_element_stiffness_matrix(self, u=None):
         """ Returns a 6x6 stiffness matrix for the primary degrees of freedom without modifying self. """
@@ -2211,21 +2376,6 @@ class WallBracketElement:
             kp *= not ((delta[1] > 0 and self.releases[2]) or (delta[1] < 0 and self.releases[3]))
             kz *= not ((delta[2] > 0 and self.releases[4]) or (delta[2] < 0 and self.releases[5]))
 
-            # # Vectorized condition checking
-            # release_conditions = np.array([
-            #     delta[0] > 0 and self.releases[0],  # Normal direction (tension)
-            #     delta[0] < 0 and self.releases[1],  # Normal direction (compression)
-            #     delta[1] > 0 and self.releases[2],  # Parallel to wall (positive)
-            #     delta[1] < 0 and self.releases[3],  # Parallel to wall (negative)
-            #     delta[2] > 0 and self.releases[4],  # Z-axis (positive)
-            #     delta[2] < 0 and self.releases[5],  # Z-axis (negative)
-            # ])
-            #
-            # stiffness_values = np.array([kn, kn, kp, kp, kz, kz])
-            # stiffness_values[release_conditions] = 0  # Zero out affected stiffnesses
-            #
-            # kn, kn, kp, kp, kz, kz = stiffness_values
-
         # Construct local stiffness matrix
         k_br = np.diag([kn, kp, kz])
 
@@ -2235,45 +2385,26 @@ class WallBracketElement:
 
     def get_element_forces(self, u):
         """Given the"""
+
+        # Compute the axial and shear element basic forces
         u = u[0:6]
         _, k_br = self.get_element_stiffness_matrix(u=u)
-        fn, fp, fz = np.linalg.multi_dot((k_br, self.G, self.C, u))
+        npz_forces = np.linalg.multi_dot((k_br, self.G, self.C, u))
+        fn, fp, fz = npz_forces
         self.bracket_forces = {'fn': fn,  # Normal to wall
                                'fp': fp,  # Parallel to Wall (Horizontal)
                                'fz': fz}  # Vertical
 
-    def compute_connection_forces(self):
-        """"""
-        if not self.connection:
-            return
+        # Compute the end reaction forces in Global Coordinates
+        backing_forces = np.dot(self.G.T, npz_forces)
+        equipment_forces = -1*backing_forces
+        r_backing_to_equipment = self.xyz_equipment - self.xyz_wall
+        moment_reactions = np.cross(r_backing_to_equipment,backing_forces)
 
-        # Define bracket local axis vectors
-        z_vec = np.array([0, 0, 1])
-        bracket_n = np.array(self.normal)
-        bracket_p = np.cross(z_vec, bracket_n)
+        self.reactions_equipment = np.concatenate((equipment_forces, moment_reactions))
+        self.reactions_backing = np.concatenate((backing_forces, moment_reactions))
 
-        # Define connection local axis vectors
-        cxn_norm = np.array(self.connection.normal_vector)
-        cxn_x = -bracket_n
-        cxn_y = np.cross(cxn_norm, cxn_x)
-
-        # Get Bracket Force Vector in Bracket NPZ coordinates
-        f_npz = np.array([self.bracket_forces['fn'],
-                          self.bracket_forces['fp'],
-                          self.bracket_forces['fz']])
-
-        # Convert Bracket Force Vector to Global XYZ coordinates
-        f_xyz = -np.dot(self.G.T, f_npz)  # todo:this line is wrong. verify correct vector conversion
-
-        # Convert Bracket Force Vector to demands on connection in local xyz coordinates
-        Vx = np.dot(f_xyz, cxn_x)
-        Vy = np.dot(f_xyz, cxn_y)
-        N = np.dot(f_xyz, cxn_norm)
-        Mx = -Vy * self.e_cxn
-        My = Vx * self.e_cxn - N * self.length
-        T = Vy * self.length
-
-        self.connection_forces = Vx, Vy, N, Mx, My, T
+        return
 
     def check_brackets(self):        
         capacities = [self.capacity_to_equipment, self.bracket_capacity, self.capacity_to_backing]
@@ -2288,21 +2419,30 @@ class WallBracketElement:
 class RigidHardwareElement:
     """ Represents a rigid, rectangular hardware element with fasteners"""
 
-    def __init__(self, w, h, pz_anchors, xyz_centroid=(0, 0, 0), normal_vector=(1, 0, 0), x_offset=0, y_offset=0):
+    def __init__(self, w, h, pz_anchors, xyz_centroid=(0, 0, 0),
+                 local_x=(0,-1,0), local_y=(0, 0, 1), local_z=(1, 0, 0)):
+        # Boundary
         self.w = w
         self.h = h
+
+        # Geometry in Global Coordinates
+        self.centroid = xyz_centroid  # Centroid in global coordinates
+        self.local_x = local_x
+        self.local_y = local_y
+        self.local_z = local_z
+        self.global_to_local_transformation = np.array((local_x,local_y,local_z))
+
+        # Geometry in Local Coordinates
         self.pz_anchors = pz_anchors  # Anchor coordinates in parallel-vertical axes.
         self.n_anchors = pz_anchors.shape[0]
-        self.centroid = xyz_centroid
-        self.normal_vector = normal_vector
-        self.x_offset = x_offset
-        self.y_offset = y_offset
 
+        # Bolt Group Properites
         self.Ixx = None
         self.Iyy = None
         self.Ixy = None
         self.Ip = None
 
+        # Nodal Forces
         self.N = None
         self.Vx = None
         self.Vy = None
@@ -2313,6 +2453,7 @@ class RigidHardwareElement:
         self.get_anchor_group_properties()
 
     def get_anchor_group_properties(self):
+
         x_bar, y_bar = np.mean(self.pz_anchors, axis=0)
         edge_dist_y = min(self.h/2-self.pz_anchors[:,1].max(),
                           abs(-self.h/2 - self.pz_anchors[:,1].min()))
@@ -2326,17 +2467,24 @@ class RigidHardwareElement:
         self.Iyy = sum(dx ** 2)
         # self.Ixy = sum(dx * dy)
         self.Ixy = 0
-        self.Ip = self.Ixy + self.Iyy
+        self.Ip = self.Ixx + self.Iyy
 
-    def set_centroid_forces(self, Vx, Vy, N, Mx, My, T):
-        self.N, self.Vx, self.Vy, self.Mx, self.My, self.T = N, Vx, Vy, Mx, My, T
+    def set_centroid_forces(self, Vx, Vy, N, Mx, My, T, convert_to_local=False):
+        if convert_to_local:
+            converted_forces = self.global_to_local_transformation @ np.array([Vx, Vy, N])
+            self.Vx, self.Vy,self.N = converted_forces
+
+            converted_moments = self.global_to_local_transformation @ np.array([Mx, My, T])
+            self.Mx, self.My, self.T = converted_moments
+        else:
+            self.N, self.Vx, self.Vy, self.Mx, self.My, self.T = N, Vx, Vy, Mx, My, T
 
     def get_anchor_forces(self):
         N, Vx, Vy, Mx, My, T = self.N, self.Vx, self.Vy, self.Mx, self.My, self.T
         Ixx = self.Ixx
         Iyy = self.Iyy
         Ixy = self.Ixy
-        x = self.w/2 - self.pz_anchors[:, 0]
+        x = self.w/2 - self.pz_anchors[:, 0]  # This sums moments about edge of bounding rectangle, I think.
         y = self.h/2 - self.pz_anchors[:, 1]
 
         normal_term = N / self.n_anchors
@@ -2369,39 +2517,58 @@ class RigidHardwareElement:
 
 
 class WallBackingElement(RigidHardwareElement):
-    def __init__(self, w, h, d, pz_anchors, pz_brackets, bracket_indices, supporting_wall,
-                 backing_type='Flat', centroid=(0, 0, 0), normal_vector=(1, 0, 0), fy=None, t_steel=None):
-        super().__init__(w, h, pz_anchors, xyz_centroid=centroid, normal_vector=normal_vector)
+    def __init__(self, w, h, d, pz_anchors, xy_brackets, bracket_indices, supporting_wall,
+                 backing_type='Flat', centroid=(0, 0, 0),
+                 local_x=None, local_y=None, local_z=None, fy=None, t_steel=None):
+        if local_z is None:
+            local_z = EquipmentModel.WALL_NORMAL_VECTORS[supporting_wall]
+        super().__init__(w, h, pz_anchors, xyz_centroid=centroid, local_x=local_x,
+                         local_y=local_y,local_z=local_z)
 
+        # Backing Hardware Properties
         self.d = d
-
-        self.pz_brackets = pz_brackets
-        self.bracket_indices = bracket_indices
-        self.supporting_wall = supporting_wall
-        self.backing_type = backing_type
-
-        self.anchor_forces = None
-        self.bracket_forces = None
         self.fy = fy
         self.t_steel = t_steel
+        self.backing_type = backing_type
+        self.supporting_wall = supporting_wall
+
+        # Bracket Properties
+        self.bracket_indices = bracket_indices
+        self.xy_brackets = xy_brackets  # Bracket attachment locations in local coordinates
+        self.x_bar, self.y_bar = np.mean(self.xy_brackets, axis=0)  # Centroid of brackets in local coordinates
+
+
+        # Results Properties
+        self.anchor_forces = None
+        self.bracket_forces = None
         self.anchors_obj = None
 
+
     def get_centroid_forces(self, bracket_list):
+
+        Vx = 0
+        Vy = 0
+        N = 0
+        Mx = 0
+        My = 0
+        T = 0
         bracket_forces = np.zeros((len(bracket_list), 3))
         for i, bracket in enumerate(bracket_list):
             bracket_forces[i, :] = (bracket.bracket_forces['fn'],
                                     bracket.bracket_forces['fp'],
                                     bracket.bracket_forces['fz'])
+
+            Vx += bracket.reactions_backing[0]
+            Vy += bracket.reactions_backing[1]
+            N += bracket.reactions_backing[2]
+            r = bracket.xyz_backing - self.centroid
+            dMx, dMy, dMz = np.cross(r,bracket.reactions_backing[0:3])
+
+            Mx += bracket.reactions_backing[3] + dMx
+            My += bracket.reactions_backing[4] + dMy
+            T += bracket.reactions_backing[5] + dMz
         self.bracket_forces = bracket_forces
-        # Correct bracket coordinates to place bracket centroid at origin. Calcs assume anchor centroid also at origin
-        x_bar, y_bar = np.mean(self.pz_brackets, axis=0)
-        N = np.sum(bracket_forces[:, 0])
-        Mx = np.sum(bracket_forces[:, 0] * (self.pz_brackets[:, 1] - y_bar))  #todo: include transverse forces Vx and Vy times L_bracket
-        My = np.sum(-bracket_forces[:, 0] * (self.pz_brackets[:, 0] - x_bar))
-        Vx = bracket_forces[:, 1].sum()
-        Vy = bracket_forces[:, 2].sum()
-        T = 0  # todo: [Calc Refinement] provide correct torsion from bracket forces here
-        self.set_centroid_forces(Vx, Vy, N, Mx, My, T)
+        self.set_centroid_forces(Vx, Vy, N, Mx, My, T, convert_to_local=True)
 
     def get_anchor_forces(self, bracket_list):
         self.get_centroid_forces(bracket_list)
@@ -2409,24 +2576,22 @@ class WallBackingElement(RigidHardwareElement):
 
 
 class SMSHardwareAttachment(RigidHardwareElement):
-    def __init__(self, w, h, pz_anchors, df_sms, centroid=(0, 0, 0), normal_vector=(1, 0, 0), x_offset=0, y_offset=0):
-        super().__init__(w, h, pz_anchors, xyz_centroid=centroid, normal_vector=normal_vector, x_offset=x_offset,
-                         y_offset=y_offset)
-        self.anchors_obj = SMSAnchors(xy_anchors=pz_anchors, df_sms=df_sms)
+    def __init__(self, w, h, pz_anchors, df_sms, centroid=(0, 0, 0),
+                 local_x=None,local_y=None, local_z=None):
+        super().__init__(w, h, pz_anchors, xyz_centroid=centroid,
+                         local_x=local_x,local_y=local_y, local_z=local_z)
+        self.anchors_obj = SMSAnchors(df_sms=df_sms)
 
-    def get_anchor_forces(self, Vx, Vy, N, Mx, My, T):
-        self.set_centroid_forces(Vx, Vy, N, Mx, My,
-                                 T)  # todo [Connection Fasteners]: Need to fix this to translate global forces to local connection axes
+    def get_anchor_forces(self, Vx, Vy, N, Mx, My, T, convert_to_local=False):
+        self.set_centroid_forces(Vx, Vy, N, Mx, My, T, convert_to_local=convert_to_local)
         self.anchors_obj.anchor_forces = super().get_anchor_forces()
 
 
 class SMSAnchors:
-    def __init__(self, wall_data=None, xy_anchors=None, backing_type=None, df_sms=None, condition_x = 'Condition 1',
+    def __init__(self, wall_data=None, backing_type=None, df_sms=None, condition_x = 'Condition 1',
                  condition_y = 'Condition 1'):
         # SMS capacity table
         self.df_sms = df_sms
-        # Geometry
-        self.xy_anchors = xy_anchors
 
         # Sheet Metal Properties
         self.fy = None
@@ -2472,10 +2637,12 @@ class SMSAnchors:
         # Determine if anchor_forces is (n x t x 3) or (n x 3)
         if anchor_forces.ndim == 3:
             # Get Maximum Forces for (n x t x 3) case
-            tension_demand = max(anchor_forces[:, :, 0].max(),0)
-            shear_demand = ((anchor_forces[:, :, 1] ** 2 + anchor_forces[:, :, 2] ** 2) ** 0.5).max()
-            shear_x_demand = np.abs(anchor_forces[:,:,1]).max()
-            shear_y_demand = np.abs(anchor_forces[:,:,2]).max()
+            tension_forces = anchor_forces[:, :, 0]
+            idx_anchor, idx_theta = get_max_demand(tension_forces)
+            tension_demand = tension_forces[idx_anchor, idx_theta]
+            shear_demand = ((anchor_forces[idx_anchor, idx_theta, 1] ** 2 + anchor_forces[idx_anchor, idx_theta, 2] ** 2) ** 0.5)
+            shear_x_demand = np.abs(anchor_forces[idx_anchor,idx_theta,1]).max()
+            shear_y_demand = np.abs(anchor_forces[idx_anchor,idx_theta,2]).max()
         elif anchor_forces.ndim == 2:
             # Get Maximum Forces for (n x 3) case
             tension_demand = max(anchor_forces[:, 0].max(),0)
@@ -2491,6 +2658,7 @@ class SMSAnchors:
         self.results['Shear X Demand'] = shear_x_demand
         self.results['Shear Y Demand'] = shear_y_demand
         self.Tu_max = tension_demand
+        self.Vu_max = shear_demand
 
         filtered_dfx = self.df_sms[
             (self.df_sms['sms_size'] == self.screw_size) &
@@ -2524,8 +2692,9 @@ class SMSAnchors:
                 self.results['Shear Y DCR'] = self.results['Shear Y Demand'] / self.results['Shear Y Capacity']
                 self.results['Shear DCR'] = (self.results['Shear X DCR']**2+self.results['Shear Y DCR']**2)**0.5
                 self.results['Tension DCR'] = self.results['Tension Demand'] / self.results['Tension Capacity']
-                self.results['OK'] = self.results['Shear DCR'] < 1 and self.results['Tension DCR'] < 1
-                self.DCR = max(self.results['Tension DCR'], self.results['Shear DCR'])
+                self.DCR = self.results['Tension DCR'] + self.results['Shear DCR']
+                self.results['OK'] = self.DCR < 1
+
         else:
             self.results['Shear X Capacity'] = 'NA'
             self.results['Shear Y Capacity'] = 'NA'

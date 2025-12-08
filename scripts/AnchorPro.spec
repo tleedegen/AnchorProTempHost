@@ -41,7 +41,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='AnchorPro - v4.1.1',
+    name='AnchorPro - v4.2.3',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

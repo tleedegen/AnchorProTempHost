@@ -7,17 +7,25 @@ Created on Sat Jun 28 10:54:28 2025
 import numpy as np
 
 class AnchorPatternMixin():
-    def get_anchor_spacing_matrix(self):
+    @staticmethod
+    def get_anchor_spacing_matrix(xy_anchors: np.ndarray) -> np.ndarray:
         # Get Inter-Anchor Spacing
-        n = len(self.xy_anchors)
-        spacing_matrix = np.empty((n, n))
-        for i in range(n):
-            for j in range(n):
-                spacing_matrix[i, j] = np.linalg.norm(self.xy_anchors[j] - self.xy_anchors[i])
-        self.spacing_matrix = spacing_matrix
-    
-    def get_anchor_groups(self, radius):
-        boolean_matrix = self.spacing_matrix < radius
+
+        # n = len(xy_anchors)
+        # spacing_matrix = np.empty((n, n))
+        # for i in range(n):
+        #     for j in range(n):
+        #         spacing_matrix[i, j] = np.linalg.norm(xy_anchors[j] - xy_anchors[i])
+        # return spacing_matrix
+
+        # shape: (n, n, 2) -> distances along last axis
+        diffs = xy_anchors[:, None, :] - xy_anchors[None, :, :]  # (n, n, 2)
+        spacing_matrix = np.linalg.norm(diffs, axis=-1)  # (n, n)
+        return spacing_matrix
+
+    @staticmethod
+    def get_anchor_groups(radius, spacing_matrix):
+        boolean_matrix = spacing_matrix < radius
         boolean_matrix = boolean_matrix.astype(int)  # Convert the boolean matrix to integer for matrix operations
         groups_matrix = np.copy(boolean_matrix)
 
@@ -35,4 +43,4 @@ class AnchorPatternMixin():
                 groups_matrix = new_matrix
 
         # Convert back to boolean
-        self.groups_matrix = groups_matrix.astype(bool)
+        return groups_matrix.astype(bool)

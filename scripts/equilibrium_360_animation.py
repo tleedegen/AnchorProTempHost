@@ -9,18 +9,23 @@ import numpy as np
 
 # Initialize controller
 controller = anchor_pro.main.main()
-item = controller.items_for_report['WKBKFN5H3015 (Wall Braced) [Cpm = 1.0]']
+item = controller.items_for_report['Base 02b']
 matplotlib.use('TkAgg')
 
+np.set_printoptions(2)
 
 
-
-def plot_init(idx,sf=1e6):
+def plot_init(item, idx,init_idx,sf=1e6):
     theta = item.theta_z[idx]
-    init = item.get_initial_dof_guess(theta)[3]
+    init = item.get_initial_dof_guess(theta)[init_idx]
 
     fig,w = plts._displaced_shape(item,init,theta)
     fig.show()
+
+
+    fig, w = plts._equilibrium_plan_view(item,init, theta)
+    fig.show()
+
 
 def plot_solution(item, idx):
     theta = item.theta_z[idx]
@@ -29,9 +34,13 @@ def plot_solution(item, idx):
     fig, w = plts._displaced_shape(item, sol, theta)
     fig.show()
 
-idx = 1
-plot_solution(item, idx)
-fig, w = plts._equilibrium_plan_view(item,item.equilibrium_solutions[:,idx],item.theta_z[idx])
+idx = 0
+init_idx = 0
+plot_init(item, idx, init_idx)
+
+
+# plot_solution(item, idx)
+# fig, w = plts._equilibrium_plan_view(item,item.equilibrium_solutions[:,idx],item.theta_z[idx])
 
 # idxs = [3]
 #

@@ -24,6 +24,9 @@ import os
 from anchor_pro.equipment import EquipmentModel, SMSHardwareAttachment
 from anchor_pro.report import EquipmentReport
 
+from dataclasses import dataclass
+from typing import Literal, Optional
+
 pd.set_option('future.no_silent_downcasting', True)
 
 
@@ -142,6 +145,7 @@ class ProjectController:
         'Wall SMS Max Shear': {'units': '(lbs)', 'width': None, 'alignment': None, 'style': None},
         'Wall SMS Tension DCR': {'units': None, 'width': None, 'alignment': None, 'style': 'dcr'},
         'Wall SMS Shear DCR': {'units': None, 'width': None, 'alignment': None, 'style': 'dcr'},
+        'Wall SMS DCR': {'units': None, 'width': None, 'alignment': None, 'style': 'dcr'},
         'Wall SMS OK': {'units': None, 'width': None, 'alignment': None, 'style': 'result'},
         'Optimum Wall SMS': {'units': None, 'width': None, 'alignment': None, 'style': 'optimum'},
         # WALL WOOD FASTENER
@@ -185,7 +189,7 @@ class ProjectController:
         self.items_for_report = {}
         self.governing_items = None
         self.group_dict = None
-        self.results_table = None
+        self.df_results = None
 
     def input_validation(self):
         """ Function to validate all required user inputs are provided before attempting analysis"""
@@ -324,6 +328,7 @@ class ProjectController:
                     results_lists['Wall SMS Max Shear'][-1] = wall_anchors.results['Shear Demand']
                     results_lists['Wall SMS Tension DCR'][-1] = wall_anchors.results['Tension DCR']
                     results_lists['Wall SMS Shear DCR'][-1] = wall_anchors.results['Shear DCR']
+                    results_lists['Wall SMS DCR'][-1] = wall_anchors.DCR
                     results_lists['Wall SMS OK'][-1] = wall_anchors.results['OK']
 
                 results_lists['Optimum Wall SMS'][-1] = is_optimum_wall
@@ -615,7 +620,7 @@ class ProjectController:
         # Verify That product is provided for all required items
         for list_name, product_list in product_lists.items():
             if product_applicable[list_name] and product_list == [None]:
-                raise Exception(f"Must spcecify product or group for {model.equipment_id}, {list_name}")
+                raise Exception(f"Must specify product or group for {model.equipment_id}, {list_name}")
 
         # Initialize Results Management Parameters
         optimum_base_cost = float('inf')
@@ -666,6 +671,9 @@ class ProjectController:
                                                wall_anchor_data=wall_anchor_data,
                                                hardware_screw_size=cxn_anchor_id,
                                                initial_solution_cache=initial_solution_cache)
+
+            # TODO FINISH RESULTS STORE
+            # results = ResultsStore()
 
             # Determine Optimum Base Anchor
             if model.installation_type in ['Base Anchored',
@@ -838,6 +846,7 @@ class ProjectController:
 
             # Create dictionary whose keys are governing items, and values are their corresponding group
             for group, eq_list in self.group_dict.items():
+
                 if group == 'ungrouped':
                     for id in eq_list:
                         self.governing_items[id] = (None, 0)
@@ -879,3 +888,6 @@ class ProjectController:
         report = EquipmentReport(self.excel_tables.project_info, self.items_for_report, self.governing_items,
                                  self.group_dict, pool=self.pool)
         # report.generate_pdf(self.output_dir)
+
+
+

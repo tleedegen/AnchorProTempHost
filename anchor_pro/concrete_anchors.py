@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from anchor_pattern_mixin import AnchorPatternMixin
+from anchor_pro.anchor_pattern_mixin import AnchorPatternMixin
 
 class ConcreteCMU(AnchorPatternMixin):
     # Adhesive Anchor Suffix Maps
@@ -441,13 +441,13 @@ class ConcreteCMU(AnchorPatternMixin):
             self.xy_anchors = np.array(xy_anchors)
 
         # Get Inter-Anchor Spacing
-        self.get_anchor_spacing_matrix()
+        self.spacing_matrix = self.get_anchor_spacing_matrix(self.xy_anchors)
         
 
         # Global anchor edge distance and min spacing
         self.edge_ordinates = [min(self.xy_anchors[:, 0].min(), -0.5 * equipment_data['Bx']) - self.cx_neg,
                                max(self.xy_anchors[:, 0].max(), 0.5 * equipment_data['Bx']) + self.cx_pos,
-                               min(self.xy_anchors[:, 0].min(), -0.5 * equipment_data['By']) - self.cy_neg,
+                               min(self.xy_anchors[:, 1].min(), -0.5 * equipment_data['By']) - self.cy_neg,
                                max(self.xy_anchors[:, 1].max(), 0.5 * equipment_data['By']) + self.cy_pos]
 
         edge_distances, c_min = self.get_edge_distances(*self.edge_ordinates,
@@ -620,7 +620,7 @@ class ConcreteCMU(AnchorPatternMixin):
 
         # Find Anchor Groups
         radius = 1.5 * self.hef_default
-        self.get_anchor_groups(radius)
+        self.groups_matrix = self.get_anchor_groups(radius, self.spacing_matrix)
 
     def set_adhesive_anchor_properties(self, anchor_data,
                                        cracked_condition='Cracked',
@@ -765,7 +765,7 @@ class ConcreteCMU(AnchorPatternMixin):
                     pars['function']()  # this avoids redundantly running shear breakout check.
                 demand = getattr(self, pars['demand'])
                 phi = getattr(self, pars['phi'])
-                phi_seismic = self.phi_seismic  # No seismic reduction per 17.10.6. But ACI 355.3R gives example with 0.75 applied  #todo [WC] verify if a different phi_seismic is required for shear
+                phi_seismic = self.phi_seismic
                 capacity = getattr(self, pars['capacity'])
                 dcr = demand / (phi * capacity)
                 self.results.loc[limit] = [mode,

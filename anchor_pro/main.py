@@ -31,11 +31,20 @@ import time
 # output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\NPC Demo"
 
 # User Testing
-# excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\Yuliy Testing\AnchorPro Input - v4.1.0.xlsm"
-# output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\Yuliy Testing"
+excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\Nick Testing\251023_SMC Library_AnchorPro Input - v4.2.0.xlsm"
+output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\Nick Testing"
 
-excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI\AnchorPro Input - HNI.xlsm"
-output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI"
+
+# DVC Machine Shop
+# excel_path = r'\\degenkolb.corp\degdata\Projects\Oak\Project.C03\498\C3498013.00\Calcs\Active\Workshts\CD-Calculations\Equipment-Anchorage\AnchorPro Input - v4.2.0.xlsm'
+# output_dir = r'C:\Users\djmiller\Desktop\AnchorPro Local\DVC'
+
+# HNI OPM
+# excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI\AnchorPro Input - HNI Terrace.xlsm"
+# output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI"
+
+# excel_path = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI\AnchorPro Input - HNI Terrace.xlsm"
+# output_dir = r"C:\Users\djmiller\Desktop\AnchorPro Local\HNI\Terrace"
 
 # Code Profiling Option
 profile_code = False
@@ -124,5 +133,3 @@ if __name__ == '__main__':
         profiler.dump_stats(os.path.join(output_dir, 'profile.txt'))
     else:
         controller = main()
-
-print('Program Finished')

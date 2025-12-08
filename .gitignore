@@ -12,3 +12,5 @@ __pycache__/
 #DLL files
 *$py.class
 .streamlit/secrets.toml
+.idea/
+Reference Files/

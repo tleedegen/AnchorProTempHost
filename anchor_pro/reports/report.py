@@ -1,4 +1,5 @@
 # Define the refactored code based on the given objectives
+# from imghdr import test_gif
 
 from pylatex import (Package, LineBreak, NewLine, MiniPage, Tabular, LongTable,
                      Document, Command, FlushRight, FlushLeft, LargeText,
@@ -8,12 +9,21 @@ from pylatex import (Package, LineBreak, NewLine, MiniPage, Tabular, LongTable,
 from pylatex.utils import bold, NoEscape
 from pylatex.base_classes import Environment
 
-from anchor_pro.concrete_anchors import ConcreteCMU, ConcreteAnchors, CMUAnchors
-from anchor_pro.equipment import SMSAnchors
-import anchor_pro.plots as plots
+from typing import Union, List, Any, Tuple
+import anchor_pro.model as m
+import anchor_pro.elements.concrete_anchors as conc
+import anchor_pro.elements.sms as sms
+from anchor_pro.elements.sms import SMSCondition
+from anchor_pro.model import WallMaterial
+from anchor_pro.project_controller.project_classes import ModelRecord
+from anchor_pro.utilities import get_governing_result
+
+import anchor_pro.reports.plots as plots
 import anchor_pro.config
+from anchor_pro.ap_types import (FactorMethod, RESULTS_LIKE)
 
 import numpy as np
+
 import pandas as pd
 import os
 
@@ -24,8 +34,6 @@ import os
 # import queue
 
 import re
-
-from anchor_pro.elements.wood_fasteners import WoodFastener
 
 result_queue = None
 
@@ -263,7 +271,15 @@ def populate_table(table, header, units, data_values,
 
 
 def utilization_text_color(cell, value, limit):
-    color = 'red' if value > limit else 'Green'
+    if isinstance(value, str):
+        if value == 'OK':
+            color = 'Green'
+        elif value == 'NG':
+            color = 'red'
+        else:
+            raise Exception("Table column result must be either 'OK' or 'NG'")
+    else:
+        color = 'red' if value > limit else 'Green'
     return NoEscape(fr'\textcolor{{{color}}}{{ {cell} }}')
 
 
@@ -429,11 +445,11 @@ class ReportSections:
 
 class EquipmentReport(Report):
 
-    def __init__(self, project_info, item_dict, governing_items, group_dict, pool=None):
+    def __init__(self, project_info, models, pool=None):
         super().__init__(project_info, pool=pool)
-        self.item_dict = item_dict
-        self.governing_items = governing_items
-        self.group_dict = group_dict
+        self.models=models
+        # self.governing_items = governing_items
+        # self.group_dict = group_dict
         self.item_sections_dict = self.get_item_sections_dict()
         if project_info['use_parallel_processing']:
             print('Creating figures with multi-threading')
@@ -447,23 +463,30 @@ class EquipmentReport(Report):
         self.generate_pdf()
 
     def get_item_sections_dict(self):
-        item_sections_dict = {}
-        for equipment_id, (group, governing_idx) in self.governing_items.items():
-            item = self.item_dict[equipment_id]
-            if group:
-                sec_name = group
-                group_items = [self.item_dict[eq_id] for eq_id in self.group_dict[group]]
-            else:
-                sec_name = equipment_id
-                group_items = None
-                sec_name = sec_name.rstrip()
-                if item.equipment_type:
-                    sec_name += f' [{item.equipment_type}]'
+        item_sections_dict = {
+            mrec.report_section_name: EquipmentReportSections(
+                mrec,
+                group_name=mrec.group,
+                group_idx = mrec.index_in_group)
+            for eid, mrec in self.models.items() if mrec.for_report}
 
-            item_sections_dict[sec_name] = EquipmentReportSections(item,
-                                                                   group_name=group,
-                                                                   group_items=group_items,
-                                                                   group_idx=governing_idx)
+        # for equipment_id, model_record in self.models.items():
+        #
+        #     item = self.results[equipment_id]
+        #     if False: #group:
+        #         sec_name = group
+        #         group_items = [self.results[eq_id] for eq_id in self.group_dict[group]]
+        #     else:
+        #         sec_name = equipment_id
+        #         group_items = None
+        #         sec_name = sec_name.rstrip()
+        #         if item.equipment_type:
+        #             sec_name += f' [{item.equipment_type}]'
+        #
+        #     item_sections_dict[sec_name] = EquipmentReportSections(item,
+        #                                                            group_name=group,
+        #                                                            group_items=group_items,
+        #                                                            group_idx=governing_idx)
         return item_sections_dict
 
     def generate_plots_serial(self):
@@ -475,10 +498,12 @@ class EquipmentReport(Report):
                 for fig_name, plot_func in plots_to_generate.items():
                     filename = make_figure_filename(sec_title, sub_title, fig_name)
                     if plot_func in plots.VTK_PLOTS:
-                        fig, width = plot_func(report_section.item, *sec_pars['args'], filename=filename)
+                        # fig, width = plot_func(report_section.model_record.model, *sec_pars['args'], filename=filename)
+                        fig, width = plot_func(report_section.model_record, *sec_pars['args'])
                         file = plots.vtk_save(fig, filename=filename)
                     else:
-                        fig, width = plot_func(report_section.item, *sec_pars['args'])
+                        # fig, width = plot_func(report_section.model_record.model, *sec_pars['args'])
+                        fig, width = plot_func(report_section.model_record, *sec_pars['args'])
                         file = plots.plt_save(filename=filename)
                     plots_dict[filename] = (width, file)
         return plots_dict
@@ -547,7 +572,7 @@ class EquipmentReport(Report):
 
         active_sections = [None, None, None, None]
         for sec_title, report_section in self.item_sections_dict.items():
-            item = report_section.item
+            mrec = report_section.model_record
             self.doc.append(NewPage())
 
             with self.doc.create(Section(sec_title)) as main_sec:
@@ -564,7 +589,7 @@ class EquipmentReport(Report):
 
                     with parent.create(section_type[depth](NoEscape(title_text))) as sec:
                         active_sections[depth] = sec
-                        func(item, sec, sec_title, sub_title, self.plots_dict, *args, **kwargs)
+                        func(mrec, sec, sec_title, sub_title, self.plots_dict, *args, **kwargs)
 
 
 class EquipmentReportSections(ReportSections):
@@ -587,7 +612,6 @@ class EquipmentReportSections(ReportSections):
             lrfd_loads_asce7_16.__name__: {},
             lrfd_loads_cbc_1998.__name__: {},
             asd_loads.__name__: {},
-            equilibrium_solution.__name__: {},
             base_anchor_demands.__name__: {'anchor_forces': plots.base_anchors_vs_theta,
                                            'displaced_shape': plots.base_displaced_shape,
                                            'plan': plots.base_equilibrium},
@@ -617,9 +641,12 @@ class EquipmentReportSections(ReportSections):
             shear_pryout.__name__: {}
         }
 
-    def __init__(self, item, group_name=None, group_items=None, group_idx=0):
+    def __init__(
+            self,
+            model_record: ModelRecord,
+            group_name=None, group_items=None, group_idx=0):
         super().__init__()
-        self.item = item
+        self.model_record = model_record
         self.group_name = group_name
         self.group_items = group_items
         self.group_idx = group_idx
@@ -627,8 +654,7 @@ class EquipmentReportSections(ReportSections):
         self.wall_anchors = None
 
         self.sections_dict = self.initialize_sections_dictionary()
-        # self.set_section_hierarchy()
-        self.set_section_inclusions(item.code_edition)
+        self.set_section_inclusions()
         self.set_section_titles()
         self.set_section_args()
 
@@ -647,8 +673,8 @@ class EquipmentReportSections(ReportSections):
             ('Seismic Load $F_p$ (CBC 1998)', fp_cbc_1998, 2),
             ('LRFD Factored Loads', lrfd_loads_asce7_16, 2),
             ('LRFD Factored Loads (CBC 1998)', lrfd_loads_cbc_1998, 2),
+            ('ASD Factored Loads (CBC 1998)', asd_loads_cbc_1998, 2),
             ('ASD Factored Loads', asd_loads, 2),
-            ('Equilibrium Solution', equilibrium_solution, 2),
             # BASE ANCHOR DEMAND
             ('Base Anchor Demands', base_anchor_demands, 1),
             # BASE CONCRETE ANCHORS
@@ -717,247 +743,206 @@ class EquipmentReportSections(ReportSections):
                                         'kwargs': {}} for section_name, func_name, depth in sections_list}
         return sections_dict
 
-    def set_section_inclusions(self, code):
-        item = self.item
+    def set_section_inclusions(self):
+        model = self.model_record.model
         sd = self.sections_dict
+        code = model.code_pars.code_edition
+        run = self.model_record.analysis_runs[self.model_record.governing_run]
 
         # Front and End Matter
-        sd['Introduction']['include'] = bool(item.frontmatter_file)
-        sd['Addendum']['include'] = bool(item.endmatter_file)
+        # sd['Introduction']['include'] = bool(item.frontmatter_file)
+        # sd['Addendum']['include'] = bool(item.endmatter_file)
 
         # Group Summary
-        sd['Group Summary']['include'] = self.group_items is not None
+        # sd['Group Summary']['include'] = self.group_items is not None
 
         # Basic Report Elements
         sd['Unit Summary']['include'] = True
 
-        if self.item.model_unstable:
-            sd['WARNING: Model Instability']['include'] = True
-            return
-
-        if not self.item.omit_analysis:
+        # if self.item.model_unstable:
+        #     sd['WARNING: Model Instability']['include'] = True
+        #     return
+        #
+        if not run.omit_analysis:
             # Load Sections
             sd['Equipment Loads']['include'] = True
-            sd['Seismic Load $F_p$ (ASCE 7-16)']['include'] = code == 'ASCE 7-16'
-            sd['Maximum Assumed Seismic Load $F_p$']['include'] = code == 'ASCE 7-22 OPM'
+
+            # sd['Seismic Load $F_p$ (ASCE 7-16)']['include'] = code == 'ASCE 7-16'
+            # sd['Maximum Assumed Seismic Load $F_p$']['include'] = code == 'ASCE 7-22 OPM'
             sd['Seismic Load $F_p$ (CBC 1998)']['include'] = code == 'CBC 1998, 16B'
 
-            sd['LRFD Factored Loads']['include'] = code in ['ASCE 7-16', 'ASCE 7-22 OPM']
-            sd['LRFD Factored Loads (CBC 1998)']['include'] = code == 'CBC 1998, 16B'
-            sd['ASD Factored Loads']['include'] = False  # todo: currently never used
+            if FactorMethod.lrfd in model.analysis_vars.factor_methods:
+                # sd['LRFD Factored Loads']['include'] = code in ['ASCE 7-16', 'ASCE 7-22 OPM']
+                sd['LRFD Factored Loads (CBC 1998)']['include'] = code == 'CBC 1998, 16B'
 
-            sd['Equilibrium Solution']['include'] = False  # todo: has been made obsolete. Language included in LRFD section
+            if FactorMethod.asd in model.analysis_vars.factor_methods:
+                sd['ASD Factored Loads (CBC 1998)']['include'] = code == 'CBC 1998, 16B'
+                # sd['ASD Factored Loads']['include'] = False
+
 
             # Base Anchor Demands
-            sd['Base Anchor Demands']['include'] = item.installation_type in ['Base Anchored', 'Wall Brackets'] \
-                                                   and item.base_anchors is not None
+            sd['Base Anchor Demands']['include'] = bool(model.elements.base_anchors)
 
         # Base Concrete Anchor Checks
-        has_base_concrete_anchors = bool(item.base_anchors) \
-                                    and isinstance(item.base_anchors, ConcreteAnchors)
+        has_base_concrete_anchors = bool(model.elements.base_anchors) \
+                                    and (model.install.base_material==m.BaseMaterial.concrete)
 
         if has_base_concrete_anchors:
             sd['Base Concrete Anchor Checks']['include'] = True
-            if not all(item.base_anchors.spacing_requirements.values()):
+            if not all([ba.spacing_requirements.ok for ba in run.results.base_anchors]):
                 sd['Base Anchor Spacing Limits']['include'] = True
-            elif not item.omit_analysis:
+            elif not model.analysis_vars.omit_analysis:
+                ba, ba_idx = get_governing_result(run.results.base_anchors)
                 sd['Base Concrete Anchor Summary']['include'] = True
-                limit_state_to_section_name_map = {
-                    'Steel Tensile Strength': 'Base Anchor in Tension [ACI318-19, 17.6.1]',
-                    'Concrete Tension Breakout': 'Base Anchor Tension Breakout [ACI318-19, 17.6.2]',
-                    'Anchor Pullout': 'Base Anchor Pullout [ACI318-19, 17.6.3]',
-                    'Side Face Blowout': 'Base Anchor Side-Face Blowout [ACI318-19, 17.6.4]',
-                    'Bond Strength': 'Base Anchor Bond Strength [ACI318-19, 17.6.5]',
-                    'Steel Shear Strength': 'Base Anchor in Shear [ACI318-19, 17.7.1]',
-                    'Shear Breakout (X+)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (X+)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (X-)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (X-)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (Y+)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (Y+)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (Y-)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (Y-)': 'Base Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Pryout': 'Base Anchor Shear Pryout [ACI318-19, 17.7.3]'}
+                tg_idx = ba.governing_tension_group
+                sg_idx = ba.governing_shear_group
 
-                short_name_to_long_name = {v: k for k, v in
-                                           item.base_anchors.shear_breakout_long_name_to_short_name_map.items()}
-                for limit_name, row in item.base_anchors.results.iterrows():
-                    # Logic to exclude any non-governing shear breakout cases to avoid redundancy in the report
-                    case1 = (row['Mode'] == 'Tension')
-                    case2 = (row['Mode'] == 'Shear') and ('Breakout' not in limit_name)
-                    case3 = ((row['Mode'] == 'Shear') and
-                             (item.base_anchors.governing_shear_breakout_case is not None) and
-                             (limit_name == short_name_to_long_name[item.base_anchors.governing_shear_breakout_case]))
-                    if any([case1, case2, case3]):
-                        sd[limit_state_to_section_name_map[limit_name]]['include'] = True
+                sd['Base Anchor in Tension [ACI318-19, 17.6.1]']['include'] = (ba.steel_tension_calcs[tg_idx] is not None)
+                sd['Base Anchor Tension Breakout [ACI318-19, 17.6.2]']['include'] = (ba.tension_breakout_calcs[tg_idx] is not None)
+                sd['Base Anchor Pullout [ACI318-19, 17.6.3]']['include'] = (ba.anchor_pullout_calcs[tg_idx] is not None)
+                sd['Base Anchor Side-Face Blowout [ACI318-19, 17.6.4]']['include'] = (ba.side_face_blowout_calcs[tg_idx] is not None)
+                sd['Base Anchor Bond Strength [ACI318-19, 17.6.5]']['include'] = (ba.bond_strength_calcs[tg_idx] is not None)
+                sd['Base Anchor in Shear [ACI318-19, 17.7.1]']['include'] = (ba.steel_shear_calcs[tg_idx] is not None)
+                if ba.shear_breakout_calcs:
+                    sd['Base Anchor Shear Breakout [ACI318-19, 17.7.2]']['include'] = (ba.shear_breakout_calcs[sg_idx] is not None)
+                sd['Base Anchor Shear Pryout [ACI318-19, 17.7.3]']['include'] = (ba.shear_pryout_calcs[tg_idx] is not None)
 
-        # Base Connection Demands
-        has_base_connections = len([plate.connection_forces for plate in item.floor_plates if
-                                    not all([plate.x0 == 0, plate.y0 == 0, plate.z0 == 0])]) > 0
-        if has_base_connections and not self.item.omit_analysis:
+
+        # # Base Connection Demands
+        # has_base_connections = len([plate.connection_forces for plate in item.floor_plates if
+        #                             not all([plate.x0 == 0, plate.y0 == 0, plate.z0 == 0])]) > 0
+
+        has_base_connections = bool(model.elements.base_plate_connections)
+
+        if has_base_connections and not run.omit_analysis:
             sd['Base Plate Connections']['include'] = True
 
             # Base SMS Attachment
             sd['Base Connection SMS Demand']['include'] = sd['Base Connection SMS Checks']['include'] = \
-                any([isinstance(plate.connection.anchors_obj, SMSAnchors)
-                     for plate in item.floor_plates if plate.connection])
+                any([isinstance(anchor_obj, sms.SMSAnchors) for anchor_obj in model.elements.base_plate_fasteners])
 
-        # Base Straps
-        sd['Base Straps']['include'] = len(item.base_straps) > 0 and not self.item.omit_analysis
-
-        # Wall Brackets and Wall Anchors
-        has_brackets = item.installation_type in ['Wall Brackets', 'Wall Mounted']
-        if has_brackets and not self.item.omit_analysis:
-            sd['Wall Fastener Demand']['include'] = True
-            sd['Wall Brackets']['include'] = \
-                sd['Wall Bracket Demand']['include'] = \
-                sd['Wall Bracket Checks']['include'] = not self.item.omit_bracket_output
-            # sd['Wall Anchors']['include'] = \
-            self.governing_backing = max(item.wall_backing, key=lambda obj: obj.anchor_forces[:, 0].max())
-
+        # # Base Straps
+        # sd['Base Straps']['include'] = len(item.base_straps) > 0 and not self.item.omit_analysis
+        #
+        # # Wall Brackets and Wall Anchors
+        # has_brackets = item.installation_type in ['Wall Brackets', 'Wall Mounted']
+        # if has_brackets and not self.item.omit_analysis:
+        #     sd['Wall Fastener Demand']['include'] = True
+        #     sd['Wall Brackets']['include'] = \
+        #         sd['Wall Bracket Demand']['include'] = \
+        #         sd['Wall Bracket Checks']['include'] = not self.item.omit_bracket_output
+        #     # sd['Wall Anchors']['include'] = \
+        #     self.governing_backing = max(item.wall_backing, key=lambda obj: obj.anchor_forces[:, 0].max())
+        #
         # Wall Concrete Anchors
-        wall_anchors_list = [anchors for wall, anchors in item.wall_anchors.items() if anchors is not None]
-        has_wall_concrete_anchors = any(
-            [isinstance(anchors, ConcreteAnchors) for anchors in wall_anchors_list])
+        has_wall_concrete_anchors = bool(model.elements.wall_anchors) \
+                                    and (model.install.wall_material == m.WallMaterial.concrete)
         if has_wall_concrete_anchors:
-            if not self.item.omit_analysis:
-                self.wall_anchors = self.item.wall_anchors[self.governing_backing.supporting_wall]
-            else:
-                self.wall_anchors = next((wall_anchors for wall_anchors in wall_anchors_list if
-                                          all(wall_anchors.spacing_requirements.values())),
-                                         wall_anchors_list[-1])
             sd['Wall Concrete Anchor Checks']['include'] = True
-            if not all(self.wall_anchors.spacing_requirements.values()):
+            if not all([ba.spacing_requirements.ok for ba in run.results.wall_anchors]):
                 sd['Wall Anchor Spacing Limits']['include'] = True
-            elif not item.omit_analysis:
+            elif not model.analysis_vars.omit_analysis:
+                ba, ba_idx = get_governing_result(run.results.wall_anchors)
                 sd['Wall Concrete Anchor Summary']['include'] = True
-                limit_state_to_section_name_map = {
-                    'Steel Tensile Strength': 'Wall Anchor in Tension [ACI318-19, 17.6.1]',
-                    'Concrete Tension Breakout': 'Wall Anchor Tension Breakout [ACI318-19, 17.6.2]',
-                    'Anchor Pullout': 'Wall Anchor Pullout [ACI318-19, 17.6.3]',
-                    'Side Face Blowout': 'Wall Anchor Side-Face Blowout [ACI318-19, 17.6.4]',
-                    'Bond Strength': 'Wall Anchor Bond Strength [ACI318-19, 17.6.5]',
-                    'Steel Shear Strength': 'Wall Anchor in Shear [ACI318-19, 17.7.1]',
-                    'Shear Breakout (X+)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (X+)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (X-)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (X-)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (Y+)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (Y+)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Breakout (Y-)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Edge Breakout (Y-)': 'Wall Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                    'Shear Pryout': 'Wall Anchor Shear Pryout [ACI318-19, 17.7.3]'}
+                tg_idx = ba.governing_tension_group
+                sg_idx = ba.governing_shear_group
 
-                short_name_to_long_name = {v: k for k, v in
-                                           self.wall_anchors.shear_breakout_long_name_to_short_name_map.items()}
-                for limit_name, row in self.wall_anchors.results.iterrows():
-                    # Logic to exclude any non-governing shear breakout cases to avoid redundancy in the report
-                    case1 = (row['Mode'] == 'Tension')
-                    case2 = (row['Mode'] == 'Shear') and ('Breakout' not in limit_name)
-                    case3 = ((row['Mode'] == 'Shear') and
-                             (self.wall_anchors.governing_shear_breakout_case is not None) and
-                             (limit_name == short_name_to_long_name[
-                                 self.wall_anchors.governing_shear_breakout_case]))
-                    if any([case1, case2, case3]):
-                        sd[limit_state_to_section_name_map[limit_name]]['include'] = True
-
-        # Wall CMU Anchors
-        has_wall_cmu_anchors = any(
-            [isinstance(anchors, CMUAnchors) for wall, anchors in item.wall_anchors.items()])
-        if has_wall_cmu_anchors and not self.item.omit_analysis:
-            sd['Wall CMU Anchor Checks']['include'] = True
-
-        # Wall SMS Anchors
-        has_wall_sms_anchors = any([isinstance(b.anchors_obj, SMSAnchors)
-                                    for b in item.wall_backing])
-        if has_wall_sms_anchors and not self.item.omit_analysis:
-            self.wall_anchors = self.governing_backing.anchors_obj
-            sd['Wall SMS Checks']['include'] = True
-
-        # Wall Wood Fasteners
-        has_wall_wood_fasteners = any([isinstance(b.anchors_obj, WoodFastener)
-                                    for b in item.wall_backing])
-        if has_wall_wood_fasteners and not self.item.omit_analysis:
-            self.wall_anchors = self.governing_backing.anchors_obj
-            sd['Wall Fastener Checks']['include'] = True
-
-
+                sd['Wall Anchor in Tension [ACI318-19, 17.6.1]']['include'] = (ba.steel_tension_calcs[tg_idx] is not None)
+                sd['Wall Anchor Tension Breakout [ACI318-19, 17.6.2]']['include'] = (ba.tension_breakout_calcs[tg_idx] is not None)
+                sd['Wall Anchor Pullout [ACI318-19, 17.6.3]']['include'] = (ba.anchor_pullout_calcs[tg_idx] is not None)
+                sd['Wall Anchor Side-Face Blowout [ACI318-19, 17.6.4]']['include'] = (ba.side_face_blowout_calcs[tg_idx] is not None)
+                sd['Wall Anchor Bond Strength [ACI318-19, 17.6.5]']['include'] = (ba.bond_strength_calcs[tg_idx] is not None)
+                sd['Wall Anchor in Shear [ACI318-19, 17.7.1]']['include'] = (ba.steel_shear_calcs[tg_idx] is not None)
+                if ba.shear_breakout_calcs:
+                    sd['Wall Anchor Shear Breakout [ACI318-19, 17.7.2]']['include'] = (ba.shear_breakout_calcs[sg_idx] is not None)
+                sd['Wall Anchor Shear Pryout [ACI318-19, 17.7.3]']['include'] = (ba.shear_pryout_calcs[tg_idx] is not None)
+        #
+        # # Wall CMU Anchors
+        # has_wall_cmu_anchors = any(
+        #     [isinstance(anchors, CMUAnchors) for wall, anchors in item.wall_anchors.items()])
+        # if has_wall_cmu_anchors and not self.item.omit_analysis:
+        #     sd['Wall CMU Anchor Checks']['include'] = True
+        #
+        # # Wall SMS Anchors
+        # has_wall_sms_anchors = any([isinstance(b.anchors_obj, SMSAnchors)
+        #                             for b in item.wall_backing])
+        # if has_wall_sms_anchors and not self.item.omit_analysis:
+        #     self.wall_anchors = self.governing_backing.anchors_obj
+        #     sd['Wall SMS Checks']['include'] = True
+        #
+        # # Wall Wood Fasteners
+        # has_wall_wood_fasteners = any([isinstance(b.anchors_obj, WoodFastener)
+        #                             for b in item.wall_backing])
+        # if has_wall_wood_fasteners and not self.item.omit_analysis:
+        #     self.wall_anchors = self.governing_backing.anchors_obj
+        #     sd['Wall Fastener Checks']['include'] = True
+        #
+        #
         # Bracket Connection Demands
-        has_bracket_connections = any([bracket.connection is not None for bracket in item.wall_brackets ])
-        if has_bracket_connections and not self.item.omit_analysis:
+        if model.elements.wall_bracket_connections and not model.analysis_vars.omit_analysis:
             sd['Bracket Connections']['include'] = True
 
             # Bracket SMS Attachment
             sd['Bracket Connection SMS Demand']['include'] = sd['Bracket Connection SMS Checks']['include'] = \
-                any([isinstance(bracket.connection.anchors_obj, SMSAnchors)
-                     for bracket in item.wall_brackets if bracket.connection is not None])
+                any([isinstance(anchor_obj, sms.SMSAnchors) for anchor_obj in model.elements.wall_bracket_fasteners])
 
     def set_section_titles(self):
+        run = self.model_record.analysis_runs[self.model_record.governing_run]
         if self.sections_dict['Wall Brackets']['include']:
-            self.sections_dict['Wall Brackets']['alt_title'] = f'{self.item.wall_brackets[0].bracket_id} (Wall Bracket)'
-            self.sections_dict['Wall Bracket Demand']['alt_title'] = f'{self.item.wall_brackets[0].bracket_id} Demand'
-            self.sections_dict['Wall Bracket Checks']['alt_title'] = f'{self.item.wall_brackets[0].bracket_id} Checks'
+            self.sections_dict['Wall Brackets']['alt_title'] = f'{run.hardware_selection.bracket_id} (Wall Bracket)'
+            self.sections_dict['Wall Bracket Demand']['alt_title'] = f'{run.hardware_selection.bracket_id} Demand'
+            self.sections_dict['Wall Bracket Checks']['alt_title'] = f'{run.hardware_selection.bracket_id} Checks'
 
     def set_section_args(self):
         """ This provides any additional arguments used by the section functions beyond the standard
         item, sec, sec_title, sub_title, plots_dict"""
 
-        item = self.item
+        model = self.model_record.model
         sd = self.sections_dict
+        run = self.model_record.analysis_runs[self.model_record.governing_run]
 
         # Group Summary
         sd['Group Summary']['args'] = (self.group_name, self.group_items, self.group_idx)
 
+        # Base Concrete Anchors
+        conc_sections_list = ['Anchor Spacing Limits',
+                              'Concrete Anchor Summary',
+                              'Anchor in Tension [ACI318-19, 17.6.1]',
+                              'Anchor Tension Breakout [ACI318-19, 17.6.2]',
+                              'Anchor Pullout [ACI318-19, 17.6.3]',
+                              'Anchor Side-Face Blowout [ACI318-19, 17.6.4]',
+                              'Anchor Bond Strength [ACI318-19, 17.6.5]',
+                              'Anchor in Shear [ACI318-19, 17.7.1]',
+                              'Anchor Shear Breakout [ACI318-19, 17.7.2]',
+                              'Anchor Shear Pryout [ACI318-19, 17.7.3]']
+
+        if run.results.base_anchors:
+            ba_res, ba_idx = get_governing_result(run.results.base_anchors)
+            ba_obj = model.elements.base_anchors[ba_idx]
+            for limit_name in conc_sections_list:
+                sd['Base ' + limit_name]['args'] = (ba_obj, ba_res)
+
         # Base SMS Connection
         if sd['Base Connection SMS Demand']['include']:
-            sol = item.governing_solutions['base_anchor_tension']['sol']
-            item.update_element_resultants(sol)
-            plates_with_connections = [plate.connection for plate in item.floor_plates if plate.connection is not None]
-
-            # Use enumerate to keep track of the index in the filtered list
-            governing_cxn_idx, base_connection_obj = max(
-                enumerate(plates_with_connections),
-                key=lambda pair: pair[1].anchors_obj.max_dcr()
-            )
+            sms_result, governing_sms_idx = get_governing_result(run.results.base_plate_fasteners)
+            sms_obj = model.elements.base_plate_fasteners[governing_sms_idx]
+            governing_cxn_idx = model.elements.sms_to_cxn[governing_sms_idx]
+            cxn_obj = model.elements.base_plate_connections[governing_cxn_idx]
+            cxn_res = run.results.base_plate_connections[governing_cxn_idx]
             # base_connection_obj = max([plate.connection for plate in item.floor_plates if plate.connection is not None],
             #                           key=lambda x: x.anchors_obj.max_dcr())
             sd['Base Plate Connections']['args'] = (governing_cxn_idx,)
-            sd['Base Connection SMS Demand']['args'] = (base_connection_obj, 'base')
-            sd['Base Connection SMS Checks']['args'] = (base_connection_obj.anchors_obj,)
-
-        # Bracket SMS Connection
-        if sd['Bracket Connections']['include']:
-            sol = item.governing_solutions['wall_bracket_tension']['sol']
-            item.update_element_resultants(sol)
-            bracket_connection_obj = max([bracket.connection for bracket in item.wall_brackets],
-                                         key=lambda x: x.anchors_obj.max_dcr())
-            sd['Bracket Connection SMS Demand']['args'] = (bracket_connection_obj, 'bracket')
-            sd['Bracket Connection SMS Checks']['args'] = (bracket_connection_obj.anchors_obj,)
-
-        # Base Concrete Anchors
-        profile = 'Slab'  # todo [Fill over Deck] make profile dynamic.
-        sd['Base Anchor Spacing Limits']['args'] = \
-            sd['Base Concrete Anchor Summary']['args'] = (item.base_anchors, profile)
-        conc_limit_names_list = ['Anchor in Tension [ACI318-19, 17.6.1]',
-                                 'Anchor Tension Breakout [ACI318-19, 17.6.2]',
-                                 'Anchor Pullout [ACI318-19, 17.6.3]',
-                                 'Anchor Side-Face Blowout [ACI318-19, 17.6.4]',
-                                 'Anchor Bond Strength [ACI318-19, 17.6.5]',
-                                 'Anchor in Shear [ACI318-19, 17.7.1]',
-                                 'Anchor Shear Breakout [ACI318-19, 17.7.2]',
-                                 'Anchor Shear Pryout [ACI318-19, 17.7.3]']
-        for limit_name in conc_limit_names_list:
-            sd['Base ' + limit_name]['args'] = (item.base_anchors,)
+            sd['Base Connection SMS Demand']['args'] = (cxn_obj, cxn_res, sms_obj, sms_result, 'base')
+            sd['Base Connection SMS Checks']['args'] = (sms_obj, sms_result)
 
         # Wall Anchor Demands
         sd['Wall Fastener Demand']['args'] = (self.governing_backing,)
 
         # Wall Concrete Anchors
-        profile = 'Wall'
-        sd['Wall Anchor Spacing Limits']['args'] = \
-            sd['Wall Concrete Anchor Summary']['args'] = (self.wall_anchors, profile)
-        for limit_name in conc_limit_names_list:
-            sd['Wall ' + limit_name]['args'] = (self.wall_anchors,)
+        wa_res, wa_idx = get_governing_result(run.results.wall_anchors)
+        wa_obj = model.elements.wall_anchors[wa_idx]
+        for limit_name in conc_sections_list:
+            sd['Wall ' + limit_name]['args'] = (wa_obj, wa_res)
 
         # Wall SMS Anchors
         sd['Wall SMS Checks']['args'] = (self.wall_anchors,)
@@ -965,6 +950,22 @@ class EquipmentReportSections(ReportSections):
         # Wall Wood Fasteners
         sd['Wall Fastener Checks']['args'] = (self.wall_anchors,)
 
+        # Bracket SMS Connection
+        if sd['Bracket Connections']['include']:
+            sms_result, governing_sms_idx = get_governing_result(run.results.wall_bracket_fasteners)
+            sms_obj = model.elements.wall_bracket_fasteners[governing_sms_idx]
+            governing_cxn_idx = governing_sms_idx
+            cxn_obj = model.elements.wall_bracket_connections[governing_cxn_idx]
+            cxn_res = run.results.wall_bracket_connections[governing_cxn_idx]
+            # base_connection_obj = max([plate.connection for plate in item.floor_plates if plate.connection is not None],
+            #                           key=lambda x: x.anchors_obj.max_dcr())
+
+            sd['Bracket Connection SMS Demand']['args'] = (cxn_obj, cxn_res, sms_obj, sms_result, 'bracket')
+            sd['Bracket Connection SMS Checks']['args'] = (sms_obj, sms_result)
+
+        # Unity Description and Summary
+        inclusions_summary = {sec: self.sections_dict[sec]['include'] for sec in self.sections_dict}
+        sd['Unit Summary']['args'] = (inclusions_summary,)
 
 def section_header(*args, **kwargs):
     pass
@@ -1018,72 +1019,84 @@ def group_summary(item, sec, sec_title, sub_title, plots_dict, group_name, group
                use_minipage=False)
 
 
-def description(item, sec, sec_title, sub_title, plots_dict):
-    # with sec.create(Subsection("Description")) as ss:
-    # sec.append("The base geometry and attachment points are indicated below.")
-    # sec.append(NoEscape(r'\bigskip'))
-    # sec.append(NewLine())
+def description(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict,
+        inclusions_dict: dict):
 
+    #Unpack Data
+    model = model_record.model
+    eprops = model.equipment_props
+    run = model_record.analysis_runs[model_record.governing_run]
+
+    #Create Section
     with sec.create(Tabularx('lX', pos='t')) as table:
-
         table.add_hline()
         header = [NoEscape(r'\rowcolor{lightgray} Unit Parameters'), '']
         table.add_row(header)
         table.add_hline()
-        table.add_row(['Equipment ID', item.equipment_id])
+        table.add_row(['Equipment ID', model.equipment_info.equipment_id])
         table.add_hline()
-        table.add_row([NoEscape('Max Operating Weight, $W_p$'), rf'{item.Wp:.2f} lbs'])
+        table.add_row([NoEscape('Max Operating Weight, $W_p$'), rf'{eprops.Wp:.2f} lbs'])
         table.add_row([NoEscape(r'Dimensions, $W\times D\times H$'),
-                       NoEscape(rf'${item.Bx:.2f}$ in. $\times {item.By:.2f}$ in. $\times{item.H:.2f}$ in.')])
-        if item.ex == item.ey == 0.0:
-            table.add_row([NoEscape(r'Center of Gravity, $z_{CG}$'), NoEscape(rf'${item.zCG:.2f}$ in.')])
+                       NoEscape(rf'${eprops.Bx:.2f}$ in. $\times {eprops.By:.2f}$ in. $\times{eprops.H:.2f}$ in.')])
+        if eprops.ex == eprops.ey == 0.0:
+            table.add_row([NoEscape(r'Center of Gravity, $z_{CG}$'), NoEscape(rf'${eprops.zCG:.2f}$ in.')])
         else:
             table.add_row([NoEscape(r'Center of Gravity, $e_x$, $e_y$, $z_{CG}$'),
-                           NoEscape(rf'${item.ex:.2f}$ in.,  ${item.ey:.2f}$ in., ${item.zCG:.2f}$ in.')])
+                           NoEscape(rf'${eprops.ex:.2f}$ in.,  ${eprops.ey:.2f}$ in., ${eprops.zCG:.2f}$ in.')])
         table.add_hline()
-        if isinstance(item.base_anchors, ConcreteAnchors):
+        if model.elements.base_anchors and isinstance(model.elements.base_anchors[0], conc.ConcreteAnchors):
+            ba_res, ba_idx = get_governing_result(run.results.base_anchors)
+            ba = model.elements.base_anchors[ba_idx]
+            ba_calc = ba_res.tension_breakout_calcs[ba_res.governing_tension_group]
             table.add_row([NoEscape(r'\rowcolor{lightgray} Base Anchor and Substrate'), ''])
             table.add_hline()
             table.add_row(['Base Condition', 'Anchorage to Concrete'])
-            table.add_row(['Anchor Type', NoEscape(rf'\textbf{{{item.base_anchors.anchor_id}}}')])
-            table.add_row([NoEscape('$h_{ef}$'), rf'{item.base_anchors.hef_default}'])
-            cracked_text = 'Cracked Concrete, ' if item.base_anchors.cracked_concrete else 'Uncracked Concrete, '
-            fc_text = rf'$f^\prime_c = {item.base_anchors.fc:.0f}$ psi'
+            table.add_row(['Anchor Type', NoEscape(rf'\textbf{{{run.hardware_selection.base_anchor_id}}}')])
+            table.add_row([NoEscape('$h_{ef}$'), rf'{ba_calc.hef_default}'])
+            cracked_text = 'Cracked Concrete, ' if ba.concrete_props.cracked_concrete else 'Uncracked Concrete, '
+            fc_text = rf'$f^\prime_c = {ba.concrete_props.fc:.0f}$ psi'
             table.add_row(['Base Material', NoEscape(cracked_text + fc_text)])
-            table.add_row(['Base Thickness', f'{item.base_anchors.t_slab:.2f}'])
-            if item.include_pull_test and not item.omit_analysis:
-                item.update_element_resultants(item.governing_solutions['base_anchor_tension']['sol'])
-                table.add_row(['Pull-test Load', f'{max([500, 3 * item.base_anchors.Tu_max]):.0f} lbs'])
-            if item.base_straps:
-                table.add_row(['Base Strap', item.base_strap])
+            table.add_row(['Base Thickness', f'{ba.concrete_props.t_slab:.2f}'])
+            # if model.include_pull_test and not model.omit_analysis:
+            #     model.update_element_resultants(model.governing_solutions['base_anchor_tension']['sol'])
+            #     table.add_row(['Pull-test Load', f'{max([500, 3 * model.base_anchors.Tu_max]):.0f} lbs'])
+            # if model.base_straps:
+            #     table.add_row(['Base Strap', model.base_strap])
             table.add_hline()
-        if item.wall_brackets:
+        if model.elements.wall_brackets:
+            wa_res, wa_idx = get_governing_result(run.results.wall_anchors)
+            wa = model.elements.wall_anchors[wa_idx]
+            wa_calc = wa_res.tension_breakout_calcs[wa_res.governing_tension_group]
             table.add_row([NoEscape(r'\rowcolor{lightgray} Wall Fastener and Substrate'), ''])
             table.add_hline()
-            table.add_row(['Wall Type', rf'{item.wall_type}'])
-            if not item.omit_bracket_output:
-                table.add_row(['Unit-to-Wall Hardware', item.wall_brackets[0].bracket_id])
-            anchors = [anchors for wall, anchors in item.wall_anchors.items() if anchors is not None]
-            anchors += [backing.anchors_obj for backing in item.wall_backing if backing.anchors_obj is not None]
-            anchor_obj = max(anchors,key=lambda x: x.Tu_max)
-            if isinstance(anchor_obj, ConcreteCMU):
-                table.add_row(['Wall Fastener', NoEscape(rf'\textbf{{{item.wall_anchor_id}}}')])
-                table.add_row([NoEscape('$h_{ef}$'), rf'{anchor_obj.hef_default}'])
-                cracked_text = 'Cracked Concrete, ' if anchor_obj.cracked_concrete else 'Uncracked Concrete, '
-                fc_text = rf'$f^\prime_c = {anchor_obj.fc:.0f}$ psi'
+            table.add_row(['Wall Type', rf'{model.install.wall_material}'])
+            if not model_record.omit_bracket_output:
+                table.add_row(['Unit-to-Wall Hardware', run.hardware_selection.bracket_id])
+            anchor_idx, anchors = get_governing_result(run.results.wall_anchors)
+            if model.install.wall_material==WallMaterial.concrete:
+                table.add_row(['Wall Fastener', NoEscape(rf'\textbf{{{run.hardware_selection.wall_anchor_id}}}')])
+                table.add_row([NoEscape('$h_{ef}$'), rf'{wa_calc.hef_default}'])
+                cracked_text = 'Cracked Concrete, ' if wa.concrete_props.cracked_concrete else 'Uncracked Concrete, '
+                fc_text = rf'$f^\prime_c = {wa.concrete_props.fc:.0f}$ psi'
                 table.add_row(['Wall Material', NoEscape(cracked_text + fc_text)])
-                table.add_row(['Wall Thickness', f'{anchor_obj.t_slab:.2f}'])
-
-            elif isinstance(anchor_obj, SMSAnchors):
-                table.add_row(['Wall Fastener', NoEscape(rf'\textbf{{{item.wall_sms_id}}}')])
-                table.add_row(['Wall Type', f'Steel Studs, {anchor_obj.gauge:.0f} GA, {anchor_obj.fy:.0f} ksi'])
-            if item.include_pull_test and not item.omit_analysis:
-                wall_anchors = []
-                item.update_element_resultants(item.governing_solutions['wall_anchor_tension']['sol'])
-                pull_test_text = f'{max([3 * anchor_obj.Tu_max, 500]):.0f} lbs' if anchor_obj.Tu_max else 'N/A'
-                table.add_row(['Pull-test Load', pull_test_text])
+                table.add_row(['Wall Thickness', f'{wa.concrete_props.t_slab:.2f}'])
+            #
+            # elif isinstance(anchor_obj, SMSAnchors):
+            #     table.add_row(['Wall Fastener', NoEscape(rf'\textbf{{{model.wall_sms_id}}}')])
+            #     table.add_row(['Wall Type', f'Steel Studs, {anchor_obj.gauge:.0f} GA, {anchor_obj.fy:.0f} ksi'])
+            # if model.include_pull_test and not model.omit_analysis:
+            #     wall_anchors = []
+            #     model.update_element_resultants(model.governing_solutions['wall_anchor_tension']['sol'])
+            #     pull_test_text = f'{max([3 * anchor_obj.Tu_max, 500]):.0f} lbs' if anchor_obj.Tu_max else 'N/A'
+            #     table.add_row(['Pull-test Load', pull_test_text])
 
             table.add_hline()
+    # todo: add ASCE7 classification, once implemented in spreadsheet
 
     sec.append(NoEscape(r'\bigskip'))
     sec.append(NewLine())
@@ -1096,7 +1109,7 @@ def description(item, sec, sec_title, sub_title, plots_dict):
 
         mini.append(NoEscape(r'\hfill'))
 
-        if item.base_anchors is not None:
+        if model.elements.base_anchors:
             # Equipment Plan View
             fig_name = 'plan'
             width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
@@ -1107,10 +1120,48 @@ def description(item, sec, sec_title, sub_title, plots_dict):
         width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
         make_figure(mini, 2, file, title='ELEVATION')
 
-    # todo: add ASCE7 classification, once implimented in spreadsheet
+    _results_summary(model_record, sec, inclusions_dict)
+
+def _results_summary(model_record, sec,inclusions_dict):
+    model = model_record.model
+    run = model_record.analysis_runs[model_record.governing_run]
+    results = run.results
+
+    def make_element_summary_row(
+            element_label, obj, obj_res: RESULTS_LIKE):
+        method_str = obj.factor_method[:]
+        theta_at_max = np.degrees(run.solutions[obj.factor_method].theta_z[obj_res.governing_theta_idx])
+        ok = 'OK' if obj_res.ok else 'NG' #r'\textcolor{Green}{\textbf{\textsf{OK}}}' if obj_res.ok else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+        return [element_label, method_str, theta_at_max, obj_res.unity, NoEscape(ok)]
+
+    sec.append(NoEscape(r'\bigskip'))
+    sec.append(NewLine())
+    data = []
+
+    if inclusions_dict['Base Concrete Anchor Summary']:
+        ba_res, ba_idx = get_governing_result(results.base_anchors)
+        ba = model.elements.base_anchors[ba_idx]
+        data.append(make_element_summary_row("Base Concrete Anchors",ba, ba_res))
+    if inclusions_dict['Base Connection SMS Checks']:
+        sms_res, sms_idx = get_governing_result(results.base_plate_fasteners)
+        sms_obj = model.elements.base_plate_fasteners[sms_idx]
+        data.append(make_element_summary_row("Base Plate Connection", sms_obj, sms_res))
+
+    title = 'Summary of Element Checks'
+    header = [NoEscape('Element'), NoEscape('Design Method'), NoEscape('Load Direction at Max Unity'), NoEscape('Max Unity'), NoEscape('OK?')]
+    units = ['', '', '(Deg)', '', '']
+    formats = ['{}', '{}', '{:.0f}', '{:.2f}', '{}']
+    make_table(sec, title, header, units, data, col_formats=formats, utilization_cols=[3,4], width=r'\textwidth',
+               use_minipage=True, align='l')
 
 
-def equipment_loads(item, sec, sec_title, sub_title, plots_dict):
+def equipment_loads(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
+    """ Placeholder for subsections"""
     pass
 
 
@@ -1174,20 +1225,28 @@ def fp_asce7_22_opm(item, sec, sec_title, sub_title, plots_dict):
         align.append(
             rf'''&E_v &&= C_{{v}}W_p && = {item.Ev:.2f} \text{{ lb}} &\text{{Vertical Seismic Force}}\\''')
 
-def fp_cbc_1998(item, sec, sec_title, sub_title, plots_dict):
+def fp_cbc_1998(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
+
+    model = model_record.model
+    calc = model.fp_calc
     with sec.create(Tabular('p{0.35\\textwidth} p{0.6\\textwidth}', pos='t')) as table:
         table.add_hline()
         header = [NoEscape(r'\rowcolor{lightgray} Unit Parameters'), '']
         table.add_row(header)
         table.add_hline()
-        table.add_row(['Table 16B-O Category', item.code_pars['cp_category']])
+        table.add_row(['Table 16B-O Category', model.code_pars.cp_category])
         table.add_hline()
-        table.add_row([NoEscape('$C_p$'), item.code_pars['Cp']])
+        table.add_row([NoEscape('$C_p$'), model.code_pars.Cp])
         table.add_hline()
-        table.add_row([NoEscape('Rigid/Flexible Factor, $R$'), item.code_pars['cp_amplification']])
+        table.add_row([NoEscape('Rigid/Flexible Factor, $R$'), model.code_pars.cp_amplification])
         table.add_hline()
         table.add_row([NoEscape(r'At-or-below-grade Factor, $G$'),
-                       f'{item.code_pars["grade_factor"]:.2f}'])
+                       f'{model.code_pars.grade_factor:.2f}'])
         table.add_hline()
 
     with sec.create(Flalign(numbering=False, escape=False)) as align:
@@ -1195,16 +1254,16 @@ def fp_cbc_1998(item, sec, sec_title, sub_title, plots_dict):
             &&=C_p  R  G && \leq \begin{{cases}}
             2G & \text{{for }} R = 2\\
             3G & \text{{for }} R = 4
-            \end{{cases}}  && = {item.code_pars['Cp_eff']}
+            \end{{cases}}  && = {model.code_pars.Cp_eff}
             & \text{{CBC98 (\S1630B.2)}}\\''')
         align.append(rf'''&F_{{p}}
                     &&=ZI_pC^\prime_{{p}}W_p &&
-                    &&={item.Fp:.2f} \text{{ lb}}
+                    &&={calc.Fp:.2f} \text{{ lb}}
                     &\quad \text{{CBC98 (30B-1)}}\\''')
         align.append(
-            rf'''&E_h &&= F_p && &&= {item.Eh:.2f} \text{{ lb}} &\text{{\hfill Horizontal Seismic Force}}\\''')
+            rf'''&E_h &&= F_p && &&= {calc.Eh:.2f} \text{{ lb}} &\text{{\hfill Horizontal Seismic Force}}\\''')
         align.append(
-            rf'''&E_v &&= F_p/3 && && = {item.Ev:.2f} \text{{ lb}} &\text{{Vertical Seismic Force}}''')
+            rf'''&E_v &&= F_p/3 && && = {calc.Ev:.2f} \text{{ lb}} &\text{{Vertical Seismic Force}}''')
 
     # with sec.create(Flalign(numbering=False, escape=False)) as align:
     #     align.append(rf'''&F_{{p}}
@@ -1237,24 +1296,57 @@ def lrfd_loads_asce7_16(item, sec, sec_title, sub_title, plots_dict):
     
 
 
-def lrfd_loads_cbc_1998(item, sec, sec_title, sub_title, plots_dict):
+def lrfd_loads_cbc_1998(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
+    model = model_record.model
+    eprops = model.equipment_props
+    fp_calc = model.fp_calc
+    fl_calc = model.factored_loads.lrfd
+
     with sec.create(Flalign()) as align:
 
         align.append(
-            rf'''&F_{{uh}} &&=0.75(1.7)(1.1E_h) &&=0.75(1.7)(1.1)({item.Eh:.2f}) 
-            &&= {item.Fuh:.2f} \text{{ lb}} &\text{{CBC98 (9B-2)}}\\''')
-        align.append(rf'''&F_{{uv,min}} &&=-0.9W_p+1.3(1.1E_v) &&=-0.9({item.Wp:.2f})+1.3(1.1)({item.Ev:.2f})
-        &&={item.Fuv_min:.2f} \text{{ lb}} & \text{{CBC98 (9B-3)}}\\ ''')
-        align.append(rf'''&F_{{uv,max}} &&=-0.75(1.4W_p+1.7(1.1E_v)) &&=-0.75(1.4{item.Wp:.2f})-1.7(1.1)({item.Ev:.2f})
-                            &&={item.Fuv_max:.2f} \text{{ lb}} & \text{{CBC98 (9B-2)}} ''')
+            rf'''&F_{{h}} &&=0.75(1.7)(1.1E_h) &&=0.75(1.7)(1.1)({fp_calc.Eh:.2f}) 
+            &&= {fl_calc.Fh:.2f} \text{{ lb}} &\text{{CBC98 (9B-2)}}\\''')
+        align.append(rf'''&F_{{v,min}} &&=-0.9W_p+1.3(1.1E_v) &&=-0.9({eprops.Wp:.2f})+1.3(1.1)({fp_calc.Ev:.2f})
+        &&={fl_calc.Fv_min:.2f} \text{{ lb}} & \text{{CBC98 (9B-3)}}\\ ''')
+        align.append(rf'''&F_{{v,max}} &&=-0.75(1.4W_p+1.7(1.1E_v)) &&=-0.75(1.4{eprops.Wp:.2f})-1.7(1.1)({fp_calc.Ev:.2f})
+                            &&={fl_calc.Fv_max:.2f} \text{{ lb}} & \text{{CBC98 (9B-2)}} ''')
 
     _analysis_description_text(sec)
 
+def asd_loads_cbc_1998(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
+    model = model_record.model
+    eprops = model.equipment_props
+    fp_calc = model.fp_calc
+    fl_calc = model.factored_loads.lrfd
+
+    with sec.create(Flalign()) as align:
+        align.append(
+            rf'''&F_{{h}} &&=1.0E_h &&=1.0({fp_calc.Eh:.2f})) 
+               &&= {fl_calc.Fh:.2f} \text{{ lb}} &\text{{CBC98 (  )}}\\''')
+        align.append(rf'''&F_{{v,min}} &&=-0.9W_p+1.3(1.1E_v) &&=-0.9({eprops.Wp:.2f})+1.3(1.1)({fp_calc.Ev:.2f})
+           &&={fl_calc.Fv_min:.2f} \text{{ lb}} & \text{{CBC98 (  )}}\\ ''')
+        align.append(
+            rf'''&F_{{uv,max}} &&=-0.75(1.4W_p+1.7(1.1E_v)) &&=-0.75(1.4{eprops.Wp:.2f})-1.7(1.1)({fp_calc.Ev:.2f})
+                               &&={fl_calc.Fv_max:.2f} \text{{ lb}} & \text{{CBC98 (  )}} ''')
+
 def _analysis_description_text(sec):
     sec.append(
-        NoEscape(r'''The factored horizontal load, $F_{uh}$ is applied at angles, $0 \leq \theta_z \leq 360$. 
+        NoEscape(r'''The factored horizontal load, $F_{h}$ is applied at angles, $0 \leq \theta_z \leq 360$. 
                 An analytical model is used to determine distribution of applied loads to anchoring elements.'''))
+
 def asd_loads(item, sec, sec_title, sub_title, plots_dict):
+    #todo: rename and refactor for 7-16 and 7-22
     with sec.create(Flalign()) as align:
         if item.include_overstrength:
             align.append(
@@ -1271,38 +1363,19 @@ def asd_loads(item, sec, sec_title, sub_title, plots_dict):
         NoEscape(r'''The factored horizontal load, $F_{ah}$ is applied at angles, $0 \leq \theta_z \leq 360$. 
                 An analytical model is used to determine distribution of applied loads to anchoring elements.'''))
 
-def equilibrium_solution(_, sec, sec_title, sub_title, plots_dict):
-    # sec.append(
-    #     'An analytical model is used to determine distribution of applied loads to anchoring elements. The equipment item is idealized as a rigid body with six degrees of freedom (3 translations and 3 rotations). The governing equations of equilibrium can be expressed as:')
-    # sec.append(Math(data=["P", "=", "KU"]))
-    # sec.append(NoEscape(
-    #     'Where $P$ are the applied loads, $U$ are the DOF displacements, and $K$ is a stiffness matrix determined from the anchoring elements.'))
-    # sec.append(
-    #     'The DOF displacement solution is then used to calculate internal forces to anchors, brackets, or other supporting elements.')
-    # sec.append(NoEscape(r'The factored horizontal load is applied at angles, $0 \leq \theta_z \leq 360$.'))
 
-    sec.append(
-        NoEscape(r'''The factored horizontal load, $F_{uh}$ is applied at angles, $0 \leq \theta_z \leq 360$. 
-        An analytical model is used to determine distribution of applied loads to anchoring elements.'''))
+def base_anchor_demands(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict):
+    """Note, this section is only included if base anchors are present in the model.
+    Section code depends on there being at least one base anchors object and corresponding results object"""
 
-# def no_prying(item,sec,sec_title, sub_title, plots_dict):
-    # todo: continue here
-
-
-# def prying_action(item,sec,sec_title, sub_title, plots_dict):
-
-
-
-def base_anchor_demands(item, sec, sec_title, sub_title, plots_dict):
-    sol = item.governing_solutions['base_anchor_tension']['sol']
-    item.update_element_resultants(sol)
+    model = model_record.model
+    run = model_record.analysis_runs[model_record.governing_run]
 
     # Anchor Forces Plot
-    if item.base_anchors is not None:
-        title = 'Anchor Forces vs. Direction of Loading'
-        fig_name = 'anchor_forces'
-        width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
-        make_figure(sec, width, file, title=title)
+    title = 'Anchor Forces vs. Direction of Loading'
+    fig_name = 'anchor_forces'
+    width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
+    make_figure(sec, width, file, title=title)
 
     # Displaced Shape Plot
     fig_name = 'displaced_shape'
@@ -1319,26 +1392,32 @@ def base_anchor_demands(item, sec, sec_title, sub_title, plots_dict):
 
     sec.append(NoEscape(r'\hfill'))
     with sec.create(MiniPage(width='3in', pos='t', align='r')) as mini:
+        ba_res, ba_idx = get_governing_result(run.results.base_anchors)
+        theta_idx = ba_res.governing_theta_idx
+        cz_states = [res.compression_zones[theta_idx] for res in run.results.base_plates]
 
         # Anchors Table
-        if item.base_anchors is not None:
-            title = 'Summary of Base Anchors(s)'
-            header = [NoEscape('$x$'), NoEscape('$y$'), NoEscape('$K^{(+)}$'), NoEscape('$N$')]
-            units = ['(in)', '(in)', '(lb/in)', '(lbs)']
-            data = np.hstack((item.base_anchors.xy_anchors,
-                              np.full((item.base_anchors.xy_anchors.shape[0], 1), item.base_anchors.K),
-                              item.base_anchors.anchor_force_results[:, 0].reshape(-1, 1))) #todo add shear
-
-            formats = ['{:.2f}', '{:.2f}', '{:.0f}', '{:.2f}']
-            make_table(mini, title, header, units, data, col_formats=formats, width=r'\textwidth',
-                       use_minipage=True, align='l',rows_to_highlight=item.base_anchors.group_idx)
+        data_blocks = []
+        for ba, ba_res in zip(model.elements.base_anchors, run.results.base_anchors):
+            xy = ba.geo_props.xy_anchors
+            K_val = ba.anchor_props.K
+            K_col = np.full((xy.shape[0],1),K_val, dtype=float)
+            forces = ba_res.forces[:,:,theta_idx]
+            data_blocks.append(np.hstack((xy, K_col, forces)))
+        data = np.vstack(data_blocks)
+        title = 'Summary of Base Anchors(s)'
+        header = [NoEscape('$x$'), NoEscape('$y$'), NoEscape('$K^{(+)}$'), NoEscape('$V_x$'), NoEscape('$V_y$'), NoEscape('$N$')]
+        units = ['(in)', '(in)', '(lb/in)', '(lbs)', '(lbs)', '(lbs)']
+        formats = ['{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}', '{:.0f}', '{:.0f}']
+        make_table(mini, title, header, units, data, col_formats=formats, width=r'\textwidth',
+                   use_minipage=True, align='l') #todo: ...,rows_to_highlight=model.base_anchors.group_idx)
 
         mini.append(NoEscape(r'\bigskip'))
+        mini.append(NewLine())
 
         # Bearing Areas Table
-        if item.floor_plates:  # todo [Testing]: Verify if this section works with anchors but no bearing boundaries
-            mini.append(NoEscape(r'\bigskip'))
-            mini.append(NewLine())
+        if model.elements.base_plates:  # todo [Testing]: Verify if this section works with anchors but no bearing boundaries
+            # mini.append(NoEscape(r'\bigskip'))
             title = 'Summary of Bearing Area(s)'
             header = [NoEscape(r'$\bar{x}$'),
                       NoEscape(r'$\bar{y}$'),
@@ -1356,34 +1435,42 @@ def base_anchor_demands(item, sec, sec_title, sub_title, plots_dict):
                      NoEscape(r'(lb/in\textsuperscript{3})'),
                      '(lbs)']
             data = []
-            for plate in item.floor_plates:
-                cz_result = plate.cz_result
-                for index in range(len(cz_result['areas'])):
+            for plate, cz in zip(model.elements.base_plates, cz_states):
+                for index in range(len(cz.areas)):
                     data.append([
-                        cz_result["centroids"][index][0],
-                        cz_result["centroids"][index][1],
-                        cz_result["areas"][index],
+                        cz.centroids[index][0],
+                        cz.centroids[index][1],
+                        cz.areas[index],
                         # cz_result["Ixx"][index],
                         # cz_result["Iyy"][index],
                         # cz_result["Ixy"][index],
-                        cz_result["beta"][index],
-                        -cz_result["fz"][index]])
+                        cz.beta[index],
+                        -cz.fz[index]])
 
             # formats = ['{:.2f}', '{:.2f}', '{:.2f}', '{:.2f}', '{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}']
             formats = ['{:.2f}', '{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}']
             make_table(mini, title, header, units, data, col_formats=formats, width=r'\textwidth', use_minipage=True,align='l')
 
-
-def base_connection_demands(item, sec, sec_title, sub_title, plots_dict, governing_cxn_idx=None):
-    # add_capacity_checks = {'sms_calcs': any([isinstance(plate.connection.anchors_obj, calculator.SMSAnchors)
-    #                                          for plate in item.floor_plates if plate.connection]),
-    #                        'weld_calcs': False,
-    #                        'bolt_calcs': False}
+def base_connection_demands(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict,
+        governing_cxn_idx=None):
+    model = model_record.model
+    run = model_record.analysis_runs[model_record.governing_run]
+    if run.results.base_plate_fasteners:
+        sms_res, sms_idx = get_governing_result(run.results.base_plate_fasteners)
+        theta_idx = sms_res.governing_theta_idx
+    else:
+        ba_res, ba_idx = get_governing_result(run.results.base_anchors)
+        theta_idx = ba_res.governing_theta_idx
 
     # Attachment Forces Table
-
-    data = [np.concatenate([[plate.xc, plate.yc, plate.zc], plate.connection_forces]) for plate in item.floor_plates if
-            not all([plate.xc == 0, plate.yc == 0, plate.zc == 0])]
+    data = [np.concatenate([[plate.props.xc, plate.props.yc, plate.props.zc], res.connection_forces[:,theta_idx]])
+            for plate, res in zip(model.elements.base_plates, run.results.base_plates)  if
+            not all([plate.props.xc == 0, plate.props.yc == 0, plate.props.zc == 0])]
 
     sec.append(
         "The table below summarizes the internal reaction forces at the attachment points "
@@ -1478,7 +1565,7 @@ def base_straps(item, sec, sec_title, sub_title, plots_dict):
                     rf'&DCR &&=T_u/{{\phi R_n}} &&=\frac{{({Tu:.2f})}}{{({Rn_backing})}} &&= {Tu / Rn_backing:.2f}\\')
 
 
-def wall_brackets(_, sec, sec_title, sub_title, plots_dict):
+def wall_brackets(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict):
     # sec.append(NoEscape(
     #     r'\textit{Wall brackets} represent the hardware or discrete points of attachment connecting the'
     #     r' equipment unit to the wall anchors. Brackets may impart loads to a single anchor, '
@@ -1492,12 +1579,12 @@ def wall_brackets(_, sec, sec_title, sub_title, plots_dict):
         r'from the analytical model. Bracket forces are distributed to backing and wall anchors using '
         r'the elastic bolt group method.'))
 
-def wall_bracket_demands(item, sec, sec_title, sub_title, plots_dict):
-    sol = item.governing_solutions['wall_bracket_tension']['sol']
-    item.update_element_resultants(sol)
+def wall_bracket_demands(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict):
+    run = model_record.analysis_runs[model_record.governing_run]
+    brackets = run.results.wall_brackets
 
     # Bracket Forces Plots
-    title = f'{item.wall_brackets[0].bracket_id} Forces vs. Direction of Loading'
+    title = f'{run.hardware_selection.bracket_id} Forces vs. Direction of Loading'
     # matrix_n = item.wall_bracket_forces[:, :, 0]
     # matrix_p = item.wall_bracket_forces[:, :, 1]
     # matrix_z = item.wall_bracket_forces[:, :, 2]
@@ -1536,18 +1623,27 @@ def wall_bracket_demands(item, sec, sec_title, sub_title, plots_dict):
         data = [[bracket.xyz_equipment[0], bracket.xyz_equipment[1],
                  bracket.xyz_equipment[2], bracket.bracket_forces["fn"],
                  bracket.bracket_forces['fp'],
-                 bracket.bracket_forces['fz']] for bracket in item.wall_brackets]
-        highlight_idx = np.argmax([bracket.bracket_forces['fn'] for bracket in item.wall_brackets])
+                 bracket.bracket_forces['fz']] for bracket in brackets]
+        highlight_idx = np.argmax([bracket.bracket_forces['fn'] for bracket in brackets])
         formats = ['{:.2f}', '{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}', '{:.0f}']
         alignment = 'cccccc'
         make_table(mini, title, header, units, data, col_formats=formats, alignment=alignment, width=r'3.5in',
                    rows_to_highlight=highlight_idx)
 
 
-def wall_bracket_checks(item, sec, sec_title, sub_title, plots_dict):
-    Tn = item.wall_brackets[0].bracket_capacity
-    Rn_eq = item.wall_brackets[0].capacity_to_equipment
-    Rn_backing = item.wall_brackets[0].capacity_to_backing
+def wall_bracket_checks(model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
+    run = model_record.analysis_runs[model_record.governing_run]
+    brackets = run.results.wall_brackets
+    br_res, br_idx = get_governing_result(brackets)
+    bracket = model_record.model.elements.wall_brackets[br_idx]
+
+    Tn = bracket.bracket_props.bracket_capacity
+    Rn_eq = bracket.bracket_props.capacity_to_equipment
+    Rn_backing = bracket.bracket_props.capacity_to_backing
     check_bracket = isinstance(Tn, (int, float))
     check_to_eq = isinstance(Rn_eq, (int, float))
     check_to_backing = isinstance(Rn_backing, (int, float))
@@ -1556,58 +1652,39 @@ def wall_bracket_checks(item, sec, sec_title, sub_title, plots_dict):
         sec.append(
             "By inspection, bracket elements are determined not to be the governing component of the load path.")
         return
-    Tu = max([b.bracket_forces['fn'] for b in item.wall_brackets])
-    if item.wall_brackets[0].capacity_method == 'ASD':
-        Ta = Tu*item.asd_lrfd_ratio
+    Tu = bracket.fn.max()
     
-        sec.append(NoEscape(rf"The maximum bracket tension force for any angle of loading, converted to ASD-level demand is:\\ $T_a = T_u\left(\frac{{ F_{{h,ASD}} }}{{ F_{{h,LRFD}} }}\right) = {Ta:.2f}$\\"))
-        # with sec.create(Math(inline=False)) as m:
-        #     m.append(NoEscape(rf'T_u = {Tu:.2f}'))
-        sec.append(
-            "Capacities for bracket elements are taken from manufacturer data or pre-tabulated by the engineer.")
-        sec.append(NewLine())
-        if check_bracket:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Capacity Check}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(rf'&DCR &&=T_a/{{(T_n/\Omega()}} &&=\frac{{({Ta:.2f})}}{{({Tn})}} &&= {Tu / Tn:.2f}')
-        if check_to_eq:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Connection to Equipment}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(rf'&DCR &&=T_a/{{(R_n/\Omega)}} &&=\frac{{({Tu:.2f})}}{{({Rn_eq})}} &&= {Tu / Rn_eq:.2f}')
-        if check_to_backing:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Connection to Wall Backing}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(
-                    rf'&DCR &&=T_a/{{(R_n/\Omega)}} &&=\frac{{({Tu:.2f})}}{{({Rn_backing})}} &&= {Tu / Rn_backing:.2f}')
-    else:
-        Tu = max([b.bracket_forces['fn'] for b in item.wall_brackets])
-    
-        sec.append(NoEscape(rf"The maximum bracket tension force for any angle of loading is: $T_u = {Tu:.2f}$\\"))
-        # with sec.create(Math(inline=False)) as m:
-        #     m.append(NoEscape(rf'T_u = {Tu:.2f}'))
-        sec.append(
-            "Capacities for bracket elements are taken from manufacturer data or pre-tabulated by the engineer.")
-        sec.append(NewLine())
-        if check_bracket:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Capacity Check}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(rf'&DCR &&=T_u/{{\phi T_n}} &&=\frac{{({Tu:.2f})}}{{({Tn})}} &&= {Tu / Tn:.2f}')
-        if check_to_eq:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Connection to Equipment}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(rf'&DCR &&=T_u/{{\phi R_n}} &&=\frac{{({Tu:.2f})}}{{({Rn_eq})}} &&= {Tu / Rn_eq:.2f}')
-        if check_to_backing:
-            sec.append(NoEscape(rf'\textbf{{\textit{{{item.wall_brackets[0].bracket_id} Connection to Wall Backing}}}}'))
-            with sec.create(Flalign()) as align:
-                align.append(
-                    rf'&DCR &&=T_u/{{\phi R_n}} &&=\frac{{({Tu:.2f})}}{{({Rn_backing})}} &&= {Tu / Rn_backing:.2f}')
+    sec.append(NoEscape(rf"The maximum bracket tension force for any angle of loading is: $T_u = {Tu:.2f}$\\"))
+    # with sec.create(Math(inline=False)) as m:
+    #     m.append(NoEscape(rf'T_u = {Tu:.2f}'))
+    sec.append(
+        "Capacities for bracket elements are taken from manufacturer data or pre-tabulated by the engineer.")
+    sec.append(NewLine())
+    if check_bracket:
+        sec.append(NoEscape(rf'\textbf{{\textit{{{run.hardware_selection.bracket_id} Capacity Check}}}}'))
+        with sec.create(Flalign()) as align:
+            align.append(rf'&DCR &&=T_u/{{\phi T_n}} &&=\frac{{({Tu:.2f})}}{{({Tn})}} &&= {Tu / Tn:.2f}')
+    if check_to_eq:
+        sec.append(NoEscape(rf'\textbf{{\textit{{{run.hardware_selection.bracket_id} Connection to Equipment}}}}'))
+        with sec.create(Flalign()) as align:
+            align.append(rf'&DCR &&=T_u/{{\phi R_n}} &&=\frac{{({Tu:.2f})}}{{({Rn_eq})}} &&= {Tu / Rn_eq:.2f}')
+    if check_to_backing:
+        sec.append(NoEscape(rf'\textbf{{\textit{{{run.hardware_selection.bracket_id} Connection to Wall Backing}}}}'))
+        with sec.create(Flalign()) as align:
+            align.append(
+                rf'&DCR &&=T_u/{{\phi R_n}} &&=\frac{{({Tu:.2f})}}{{({Rn_backing})}} &&= {Tu / Rn_backing:.2f}')
 
 
-def wall_anchor_demands(item, sec, sec_title, sub_title, plots_dict, governing_backing):
-    sol = item.governing_solutions['wall_anchor_tension']['sol']
-    item.update_element_resultants(sol)
-    # governing_backing = max(item.wall_backing, key=lambda obj: obj.anchor_forces[:, 0].max())
-
+def wall_anchor_demands(model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict,
+        governing_backing_idx):
+    run = model_record.analysis_runs[model_record.governing_run]
+    wall_anchors = run.results.wall_anchors
+    wa_res, wa_idx = get_governing_result(wall_anchors)
+    wa = model_record.model.elements.wall_anchors[wa_idx]
     sec.append("An anchor group is taken as all anchors within a single backing element. "
                "Forces to wall anchors are determined from the combined effect of all brackets "
                r"acting on the backing element. The backing element with wall anchors and bracket forces is shown below.")
@@ -1656,18 +1733,24 @@ def wall_anchor_demands(item, sec, sec_title, sub_title, plots_dict, governing_b
     formats = ['{:.0f}', '{:.0f}', '{:.0f}']
     # data = np.column_stack((governing_backing.anchor_forces[:, 0],
     #                         np.linalg.norm(governing_backing.anchor_forces[:, 1:], axis=1)))
-    data = governing_backing.anchor_forces
+
+    data = wa_res.forces[:,:,wa_res.governing_theta_idx]
     make_table(sec, "Governing Wall Fastener Forces", header, units, data, alignment='ccc', col_formats=formats,
                width='3in')
 
 
-def bracket_connection_demands(item, sec, sec_title, sub_title, plots_dict):
+def bracket_connection_demands(model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict):
     # Attachment Forces Table
-    data = [bracket.connection_forces for bracket in item.wall_brackets if bracket.connection_forces]
+    run = model_record.analysis_runs[model_record.governing_run]
+    brackets = run.results.wall_brackets
+    gov_bracket, gov_bracket_idx = get_governing_result(brackets)
 
-    sol = item.governing_solutions['wall_bracket_tension']['sol']
-    item.update_element_resultants(sol)
 
+    data = [bracket.reactions_equipment[:,gov_bracket.governing_theta_idx] for bracket in brackets]
     sec.append(
         "The table below summarizes the internal reaction forces at the attachment points "
         "for wall bracket elements. Connection of the brackets to the equipment unit "
@@ -1682,11 +1765,23 @@ def bracket_connection_demands(item, sec, sec_title, sub_title, plots_dict):
               NoEscape('$M_z$')]
     units = ['(lbs)'] * 3 + ['(in-lbs)'] * 3
     formats = ['{:.0f}'] * 6
-    make_table(sec, "Bracket Attachment Forces", header, units, data, col_formats=formats)
+    make_table(sec, "Bracket Attachment Forces", header, units, data, col_formats=formats, rows_to_highlight=[gov_bracket_idx])
     sec.append(NewLine())
 
 
-def sms_connection_demands(_, sec, sec_title, sub_title, plots_dict, connection_obj, connection_type):
+def sms_connection_demands(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict,
+        cxn_obj,
+        cxn_res,
+        anchors_obj: sms.SMSAnchors,
+        results: sms.SMSResults,
+        connection_type):
+
+    theta_idx = results.governing_theta_idx
     """section taking nodal demands and applying them to sms group"""
     type_to_text = {'base': 'Base plates',
                     'bracket': 'Bracket'}
@@ -1697,7 +1792,7 @@ def sms_connection_demands(_, sec, sec_title, sub_title, plots_dict, connection_
         f'{type_to_text[connection_type]} are attached to the equipment using sheet-metal-screws. '
         'Centroid forces (normal, shear and moments) on the connection screws group are computed '
         r'from nodal forces at the connection of the floor plate element to equipment model.\\'))
-
+    sec.append(NoEscape(r'\smallskip'))
     sec.append(NoEscape(
         'Given connection forces $N$, $V_x$, $M_x$, $M_y$, $V_y$, $T$, the tension and shear forces in anchors, $T_a$ and $V_a$, are computed by the following relationships:'))
 
@@ -1715,114 +1810,98 @@ def sms_connection_demands(_, sec, sec_title, sub_title, plots_dict, connection_
     sec.append(NoEscape(r'\hfill'))
 
     # Anchor Force Table
-    header = [NoEscape('Normal, $N$'), NoEscape('Shear, $V$')]
-    units = ['(lbs)', '(lbs)']
-    formats = ['{:.0f}', '{:.0f}']
-    data = np.column_stack((connection_obj.anchors_obj.anchor_forces[:, 0],
-                            np.linalg.norm(connection_obj.anchors_obj.anchor_forces[:, 1:],
-                                           axis=1)))
+    header = [NoEscape('Normal, $T$'), NoEscape('Shear, $V_x$'), NoEscape('Shear, $V_y$')]
+    units = ['(lbs)', '(lbs)', '(lbs)']
+    formats = ['{:.0f}', '{:.0f}', '{:.0f}']
+    data = np.column_stack((results.tension_demand[:, theta_idx],
+                            results.shear_x_demand[:, theta_idx],
+                            results.shear_y_demand[:,theta_idx]))
     make_table(sec, "Fastener Demands for Governing Connection", header, units, data,
-               alignment='cc', col_formats=formats, width='3in')
+               alignment='ccc', col_formats=formats, width='3in')
 
 
-def sms_checks(item, sec, sec_title, sub_title, plots_dict, anchors_obj):
+def sms_checks(
+        model_record: ModelRecord,
+        sec: Union[Section, Subsection, Subsubsection],
+        sec_title: str,
+        sub_title: str,
+        plots_dict: dict,
+        anchors_obj: sms.SMSAnchors,
+        results: sms.SMSResults):
+
     # Extract Parameters
     a = anchors_obj
-    if a.anchor_forces.ndim == 3:
-        T_lrfd = a.anchor_forces[:, :, 0].max()
-        V_lrfd = np.linalg.norm(a.anchor_forces[:, :, 1:], axis=2).max()
-        Vx_lrfd = a.anchor_forces[:, :, 1].max()
-        Vy_lrfd = a.anchor_forces[:, :, 2].max()
-    elif a.anchor_forces.ndim == 2:
-        T_lrfd = a.anchor_forces[:, 0].max()
-        V_lrfd = np.linalg.norm(a.anchor_forces[:, 1:], axis=1).max()
-        Vx_lrfd = a.anchor_forces[:, 1].max()
-        Vy_lrfd = a.anchor_forces[:, 2].max()
-    else:
-        raise ValueError("anchor_forces must be either an (n x t x 3) or (n x 3) array.")
-    T_asd = a.results['Tension Demand']
-    V_asd = a.results['Shear Demand']
-    Vx_asd = a.results['Shear X Demand']
-    Vy_asd = a.results['Shear Y Demand']
-    T_all = a.results['Tension Capacity']
-    Vx_all = a.results['Shear X Capacity']
-    Vy_all = a.results['Shear Y Capacity']
+    theta_idx = results.governing_theta_idx
+    a_idx = results.governing_anchor_idx
 
-    permissible = (a.results['Tension DCR'] != "NG") and \
-                  (a.results['Shear X DCR'] != "NG") and \
-                  (a.results['Shear Y DCR'] != "NG")
+    condition_labels = {SMSCondition.METAL_ON_METAL: {'Label':'Steel-to-Steel Connection',
+                                                      'Table': 'Table 1'},
+                        SMSCondition.GYP_1_LAYER: {'Label': 'Single Layer Gyp',
+                                                   'Table': 'Table 2'},
+                        SMSCondition.GYP_2_LAYERS: {'Label': 'Two Layer Gyp',
+                                                   'Table': 'Table 3'},
+                        SMSCondition.PRYING: {'Label': 'Prying',
+                                                   'Table': 'Table 4'}
+                        }
+
+    #Todo: test what happens with non-permitted combinations of size, gauge and fy
 
     sec.append(NoEscape(
         "Allowable strengths of sheet metal screws in shear and tension are based upon tabulated values "
         "provided by the California Department of Healcare Access and Information (HCAI) OPD-0001-13: "
         r"\textit{Standard Partition Wall Details.}"))
 
-    with sec.create(Subsubsection('Conversion to ASD Demands')) as ss:
-        ss.append("The equipment model was analyzed under ultimate (LRFD) level forces. "
-                  "Anchor capacities are tabulated as allowable (ASD) capacities. Maximum anchor tension and "
-                  "shear demands are converted by multiplying by the ratio of ASD-factored to LRFD-factored "
-                  "lateral loads.")
+    sec.append(
+        NoEscape(r'SMS capacities are based on  screw size, base material, and attachment condition.'))
 
-        with ss.create(Flalign()) as fl:
-            fl.append(NoEscape(
-                rf'T_{{ASD}} &= T_{{LRFD}}\left(\frac{{ F_{{h,ASD}} }}{{ F_{{h,LRFD}} }}\right) &&= {T_lrfd:.2f}\left(\frac{{ {item.Fah:.2f} }}{{ {item.Fuh:.2f} }}\right)&&={T_lrfd:.2f}({item.Fah / item.Fuh:0.2f}) &&={T_asd:.2f} \text{{ (lbs)}}\\'))
-            fl.append(NoEscape(
-                rf'V_{{x,ASD}} &= V_{{x,LRFD}}\left(\frac{{ F_{{h,ASD}} }}{{ F_{{h,LRFD}} }}\right) &&= {Vx_lrfd:.2f}\left(\frac{{ {item.Fah:.2f} }}{{ {item.Fuh:.2f} }}\right)&&={Vx_lrfd:.2f}({item.Fah / item.Fuh:0.2f}) &&={Vx_asd:.2f} \text{{ (lbs)}}\\'))
-            fl.append(NoEscape(
-                rf'V_{{y,ASD}} &= V_{{y,LRFD}}\left(\frac{{ F_{{h,ASD}} }}{{ F_{{h,LRFD}} }}\right) &&= {Vy_lrfd:.2f}\left(\frac{{ {item.Fah:.2f} }}{{ {item.Fuh:.2f} }}\right)&&={Vy_lrfd:.2f}({item.Fah / item.Fuh:0.2f}) &&={Vy_asd:.2f} \text{{ (lbs)}}'''))
+    sec.append(NoEscape(r'\bigskip'))
+    sec.append(NewLine())
 
-    with sec.create(Subsubsection('SMS Capacities from OPD-001-13')) as ss:
-        ss.append(
-            NoEscape(r'SMS capacities are based on  screw size, base material, and attachment condition.'))
+    with sec.create(MiniPage(width = '4in',pos='t', align='l')) as mini:
+        mini.append(NoEscape(r'\begin{footnotesize}'))
+        with mini.create(Tabular('ll')) as table:
+            table.add_hline()
+            table.add_row([NoEscape(r'\rowcolor{lightgray} Properties'), ''])
+            table.add_hline()
+            table.add_row(['Fastener Size', a.screw_size])
+            table.add_hline()
+            table.add_row([NoEscape(r'Steel $F_y$ (ksi)'), f'{a.props.fy:.0f}'])
+            table.add_hline()
+            table.add_row(['Steel Gauge', f'{a.props.gauge:.0f}'])
+            table.add_hline()
+            table.add_row(['Shear X Condition', condition_labels[a.props.condition_x]['Label']])
+            table.add_row(['OPD Table', condition_labels[a.props.condition_x]['Table']])
+            table.add_hline()
+            table.add_row(['Shear Y Condition', condition_labels[a.props.condition_y]['Label']])
+            table.add_row(['OPD Table', condition_labels[a.props.condition_y]['Table']])
+            table.add_hline()
+        mini.append(NoEscape(r'\end{footnotesize}'))
 
-        ss.append(NoEscape(r'\bigskip'))
-        ss.append(NewLine())
+    sec.append(NoEscape(r'\hfill'))
 
-        with ss.create(MiniPage(width = '4in',pos='t', align='l')) as mini:
+    with sec.create(MiniPage(width='2.25in',pos='t',align='r')) as mini:
+        if not True: # permissible:
+            sec.append(NoEscape(
+                r'\textcolor{red}{\textbf{The specified fastener size or material grade is not permitted! No capacity is reported.}}'))
+        else:
             mini.append(NoEscape(r'\begin{footnotesize}'))
+            #
             with mini.create(Tabular('ll')) as table:
                 table.add_hline()
-                table.add_row([NoEscape(r'\rowcolor{lightgray} Properties'), ''])
+                # Insert row color before the row
+                table.append(NoEscape(r'\rowcolor{lightgray}'))
+                table.add_row([
+                    MultiColumn(2, align='l', data=NoEscape(r'OPD-0001 Tabulated Capacities'))
+                ])
+
                 table.add_hline()
-                table.add_row(['Fastener Size', a.screw_size])
-                table.add_hline()
-                table.add_row([NoEscape(r'Steel $F_y$ (ksi)'), f'{a.fy:.0f}'])
-                table.add_hline()
-                table.add_row(['Steel Gauge', f'{a.gauge:.0f}'])
-                table.add_hline()
-                table.add_row(['Shear X Condition', a.conditions[a.condition_x]['Label']])
-                table.add_row(['OPD Table', a.conditions[a.condition_x]['Table']])
-                table.add_hline()
-                table.add_row(['Shear Y Condition', a.conditions[a.condition_y]['Label']])
-                table.add_row(['OPD Table', a.conditions[a.condition_y]['Table']])
+                table.add_row([NoEscape(r'$T_{all}$ (lbs)'), f'{results.tension_capacity:.0f}'])
+                table.add_row([NoEscape(r'$V_{x,all}$ (lbs)'), f'{results.shear_x_capacity:.0f}'])
+                table.add_row([NoEscape(r'$V_{y,all}$ (lbs)'), f'{results.shear_y_capacity:.0f}'])
                 table.add_hline()
             mini.append(NoEscape(r'\end{footnotesize}'))
-
-        ss.append(NoEscape(r'\hfill'))
-
-        with ss.create(MiniPage(width='2.25in',pos='t',align='r')) as mini:
-            if not permissible:
-                ss.append(NoEscape(
-                    r'\textcolor{red}{\textbf{The specified fastener size or material grade is not permitted! No capacity is reported.}}'))
-            else:
-                mini.append(NoEscape(r'\begin{footnotesize}'))
-                #
-                with mini.create(Tabular('ll')) as table:
-                    table.add_hline()
-                    # Insert row color before the row
-                    table.append(NoEscape(r'\rowcolor{lightgray}'))
-                    table.add_row([
-                        MultiColumn(2, align='l', data=NoEscape(r'OPD-0001 Tabulated Capacities'))
-                    ])
-
-                    table.add_hline()
-                    table.add_row([NoEscape(r'$T_{all}$ (lbs)'), f'{T_all:.0f}'])
-                    table.add_row([NoEscape(r'$V_{x,all}$ (lbs)'), f'{Vx_all:.0f}'])
-                    table.add_row([NoEscape(r'$V_{y,all}$ (lbs)'), f'{Vy_all:.0f}'])
-                    table.add_hline()
-                mini.append(NoEscape(r'\end{footnotesize}'))
-        ss.append(NoEscape(r'\bigskip'))
-        ss.append(NewLine())
+    sec.append(NoEscape(r'\bigskip'))
+    sec.append(NewLine())
 
         # if not permissible:
         #     ss.append(NoEscape(
@@ -1835,28 +1914,37 @@ def sms_checks(item, sec, sec_title, sub_title, plots_dict, anchors_obj):
         #         fl.append(rf'V_{{x,all}} &= {Vx_all:.0f} (lbs) &\\')
         #         fl.append(rf'V_{{y,all}} &= {Vy_all:.0f} (lbs) &')
 
-        if permissible:
-            ok_t = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.results[
-                                                  'Tension DCR'] <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-            ok_vx = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.results[
-                                                   'Shear X DCR'] <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-            ok_vy = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.results[
-                                                   'Shear Y DCR'] <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-            ok_v = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.results[
-                                                  'Shear DCR'] <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-            ok = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.DCR <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-            ss.append('The resulting demand-to-capacity ratios are:')
-            with ss.create(Flalign()) as fl:
-                fl.append(
-                    rf'DCR_T &= T_{{ASD}} / T_{{all}} &&={T_asd:.0f}/{T_all:.0f} &&={a.results["Tension DCR"]:.2f} &{ok_t}\\')
-                fl.append(
-                    rf'DCR_{{Vx}} &= V_{{x,ASD}} / V_{{x,all}} &&={Vx_asd:.0f}/{Vx_all:.0f} &&={a.results["Shear X DCR"]:.2f} &{ok_vx}\\')
-                fl.append(
-                    rf'DCR_{{Vy}} &= V_{{y,ASD}} / V_{{y,all}} &&={Vy_asd:.0f}/{Vy_all:.0f} &&={a.results["Shear Y DCR"]:.2f} &{ok_vy}\\')
-                fl.append(
-                    rf'DCR_V &= \sqrt{{DCR_{{Vx}}^2 + DCR_{{Vx}}^2}} &&=\sqrt{{ {a.results["Shear X DCR"]:.2f}^2 +{a.results["Shear Y DCR"]:.2f}^2}}&&={a.results["Shear DCR"]:.2f} &{ok_v}\\')
-                fl.append(
-                    rf'DCR_T &= DCR_T + DCR_V &&= {a.results["Tension DCR"]:.2f} + {a.results["Shear DCR"]:.2f} &&={a.DCR:.2f} &{ok}\\')
+    t = results.tension_demand[a_idx, theta_idx]
+    t_cap = results.tension_capacity
+    t_unity = results.tension_unity[a_idx, theta_idx]
+
+    vx = results.shear_x_demand[a_idx, theta_idx]
+    vx_cap = results.shear_x_capacity
+    vx_unity = results.shear_x_unity[a_idx, theta_idx]
+
+    vy = results.shear_y_demand[a_idx, theta_idx]
+    vy_cap = results.shear_y_capacity
+    vy_unity = results.shear_y_unity[a_idx, theta_idx]
+
+    v_unity = results.shear_unity[a_idx, theta_idx]
+
+    ok_t = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if t_unity <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+    ok_vx = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if vx_unity <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+    ok_vy = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if vy_unity <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+    ok_v = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if v_unity <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+    ok = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if results.ok else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+    sec.append('Three conditions of loading are considerd; maximum tension temand, maximum shear demand (in both x- and y-directions) and loading resulting in maximum combined :')
+    with sec.create(Flalign()) as fl:
+        fl.append(
+            rf'DCR_T &= T_{{ASD}} / T_{{all}} &&={t:.0f}/{t_cap:.0f} &&={t_unity:.2f} &{ok_t}\\')
+        fl.append(
+            rf'DCR_{{Vx}} &= V_{{x,ASD}} / V_{{x,all}} &&={vx:.0f}/{vx_cap:.0f} &&={vx_unity:.2f} &{ok_vx}\\')
+        fl.append(
+            rf'DCR_{{Vy}} &= V_{{y,ASD}} / V_{{y,all}} &&={vy:.0f}/{vy_cap:.0f} &&={vy_unity:.2f} &{ok_vy}\\')
+        fl.append(
+            rf'DCR_V &= \sqrt{{DCR_{{Vx}}^2 + DCR_{{Vx}}^2}} &&=\sqrt{{ {vx_unity:.2f}^2 +{vy_unity:.2f}^2}}&&={v_unity:.2f} &{ok_v}\\')
+        fl.append(
+            rf'DCR_T &= DCR_T + DCR_V &&= {t_unity:.2f} + {v_unity:.2f} &&={results.unity:.2f} &{ok}\\')
 
 def wood_fastener_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj):
     a = anchor_obj
@@ -2021,43 +2109,63 @@ def wood_fastener_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj
     sec.append(NoEscape(r'\text{DCR}=V/Z^\prime_\alpha =' +rf'{a.V:.0f}/{a.z_alpha_prime:.0f}={a.DCR:.2f}'))
     sec.append(NoEscape(r'\end{math}'))
 
-def concrete_summary_spacing_only(item, sec, sec_title, sub_title, plots_dict, anchor_obj, profile):
+def concrete_summary_spacing_only(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     with sec.create(MiniPage(width=r"3.75in", pos='t')) as mini:
-        _concrete_input_parameters(mini,anchor_obj,profile)
+        _concrete_input_parameters(mini,anchor_obj,results)
 
-    _spacing_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj)
+    _spacing_checks(model_record, sec, sec_title, sub_title, plots_dict, anchor_obj, results)
 
 
-def concrete_summary_full(item, sec, sec_title, sub_title, plots_dict, anchor_obj, profile):
+def concrete_summary_full(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
+    tg_idx = results.governing_tension_group
+    sg_idx = results.governing_shear_group
+    idx_theta = results.governing_theta_idx
+    idx_anchor = results.governing_anchor_idx
+
+    sec.append('''Anchor capacity is evaluated according to the failure mode requirements of ACI 318-19. 
+    Loads and details are given below. The anchor spacing and edge distances are checked against manufacturer requirements. ''')
+
+
+    tg = results.tension_groups[tg_idx]
+
+    sec.append(NoEscape(rf'''The governing condition consists of a tension breakout group of ({tg.n_anchor:1}) 
+    anchor(s). '''))
+
+    if results.shear_groups:
+        sg = results.shear_groups[sg_idx]
+        sec.append(NoEscape(rf'''All possible shear breakout groups were evaluated according to ACI 318-19, \S17.7.2.1.1.
+        The governing shear breakout group of ({sg.n_anchor:1}) anchor(s). '''))
+    else:
+        sec.append(NoEscape(rf'''Shear breakout does not govern due to edge large distances to anchor(s). '''))
     # Anchorage Condition Table
-    sec.append(NoEscape(rf'''The governing anchor condition consists of ({len(a.xy_group):1}) 
-    anchor(s) with loads and details given below. 
-    The anchor spacing and edge distances are checked against manufacturer requirements.
-    Anchor capacity is evaluated according to the failure mode requirements of ACI 318-19.'''))
+
     subheader(sec, 'Anchor Data')
 
     with sec.create(MiniPage(width=NoEscape(r"3.75in"), pos='t', align='l')) as mini:
         # Input Data Table
-        _concrete_input_parameters(mini, anchor_obj, profile)
+        _concrete_input_parameters(mini, anchor_obj, results)
 
     sec.append(NoEscape(r'\hfill'))
     with sec.create(MiniPage(width=NoEscape(r"2.5in"), pos='t', align='c')) as mini:
+        mini.append('Table Here')
         # Anchors Table
-        header = [NoEscape(r'\#'),
-            NoEscape(r'$x$'),
-                  NoEscape(r'$xy$'),
-                  NoEscape(r'$T_u$'),
-                  NoEscape(r'$V_{ux}$'),
-                  NoEscape(r'$V_{uy}$')]
-        units = ['', '(in)', '(in)', '(lbs)', '(lbs)', '(lbs)']
-        data = []
-        for i, (x, y) in enumerate(a.xy_group):
-
-            data.append([a.group_idx[i], x, y, *a.max_group_forces["tension"][i, :]])
-        formats = ['{:.0f}', '{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}', '{:.0f}']
-        make_table(mini, None, header, units, data, alignment='lccccc',
-                   col_formats=formats, use_minipage=False,add_index=False)
+        # header = [NoEscape(r'\#'),
+        #     NoEscape(r'$x$'),
+        #           NoEscape(r'$xy$'),
+        #           NoEscape(r'$T_u$'),
+        #           NoEscape(r'$V_{ux}$'),
+        #           NoEscape(r'$V_{uy}$')]
+        # units = ['', '(in)', '(in)', '(lbs)', '(lbs)', '(lbs)']
+        # data = []
+        # for i, (x, y) in enumerate(a.geo_props.xy_anchors[tg.anchor_indices]):
+        #
+        #     data.append([a.group_idx[i], x, y, *a.max_group_forces["tension"][i, :]])
+        # formats = ['{:.0f}', '{:.2f}', '{:.2f}', '{:.0f}', '{:.0f}', '{:.0f}']
+        # make_table(mini, None, header, units, data, alignment='lccccc',
+        #            col_formats=formats, use_minipage=False,add_index=False)
 
         # mini.append(NewLine())
         fig_name = 'diagram'
@@ -2069,15 +2177,30 @@ def concrete_summary_full(item, sec, sec_title, sub_title, plots_dict, anchor_ob
 
 
     # Anchor Spacing and Edge Distance Checks
-    _spacing_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj)
+    _spacing_checks(model_record, sec, sec_title, sub_title, plots_dict, anchor_obj, results)
 
-    # Tension Limit States Table
+    # Limit States Table
+    # limit state: (calc, Label, Mode, Capacity Attribute Name)
+    tension_limits: List[Tuple[Any, str, str, str]] = [
+        (results.steel_tension_calcs[tg_idx],"Steel Tensile Strength", "Tension", "Nsa"),
+        (results.tension_breakout_calcs[tg_idx], "Concrete Tension Breakout", "Tension", "Ncb"),
+        (results.anchor_pullout_calcs[tg_idx],"Anchor Pullout","Tension", "Np"),
+        (results.side_face_blowout_calcs[tg_idx], "Side Face Blowout", "Tension", "Nsbg"),
+        (results.bond_strength_calcs[tg_idx], "Bond Strength", "Tension", "Nag")]
+
+    shear_limits: List[Tuple[Any, str, str, str]] = [
+        (results.steel_shear_calcs[tg_idx], "Steel Shear Strength", "Shear", "Vsa"),
+        (results.shear_pryout_calcs[tg_idx], "Shear Pryout", "Shear", "Vcp")]
+    if results.shear_breakout_calcs:
+        shear_limits.append((results.shear_breakout_calcs[sg_idx],"Concrete Shear Breakout", "Shear", "Vcb"))
+
+
     sec.append(NoEscape(r'\begin{samepage}'))
     sec.append(NoEscape(r'\begin{footnotesize}'))
-    subheader(sec, 'Tension Failure Modes')
+    subheader(sec, 'Anchor Limit States')
     with sec.create(Tabularx('Xcrrrrrr')) as table:
         table.add_hline()
-        header = [NoEscape(r'\rowcolor{lightgray} Limit State'),
+        tension_header = [NoEscape(r'\rowcolor{lightgray} Tension Limits'),
                   'Mode',
                   NoEscape('$N_u$'),
                   NoEscape('$N_n$'),
@@ -2085,46 +2208,52 @@ def concrete_summary_full(item, sec, sec_title, sub_title, plots_dict, anchor_ob
                   NoEscape(r'$\phi_{seismic}$'),
                   NoEscape(r'$\phi\phi_{seismic}N_n$'),
                   'Utilization']
+        shear_header = [NoEscape(r'\rowcolor{lightgray} Shear Limits'),
+                          'Mode',
+                          NoEscape('$V_u$'),
+                          NoEscape('$V_n$'),
+                          NoEscape(r'$\phi$'),
+                          NoEscape(r'$\phi_{seismic}$'),
+                          NoEscape(r'$\phi\phi_{seismic}V_n$'),
+                          'Utilization']
         units = [NoEscape(r'\rowcolor{lightgray}'), '', '(lbs)', '(lbs)', '', '', '(lbs)', '']
-        table.add_row(header)
+
+
+
+        table.add_row(tension_header)
         table.add_row(units)
         table.add_hline()
-        results = a.results.loc[a.results['Mode'] == 'Tension']
-        for index, row in results.iterrows():
-            formatted_row = [f"{item:,.2f}" if isinstance(item, (int, float)) else item for item in
-                             row.tolist()]
-            formatted_row[-1] = utilization_text_color(formatted_row[-1],row.iloc[-1],1.0)
-            table.add_row([index] + formatted_row)
-            table.add_hline()
+        def add_limit_rows(table,limits_list):
+            for calc, label, mode, cap_par in limits_list:
+                if calc is not None:
+                    demand = calc.demand[idx_theta]
+                    phi = calc.phi
+                    phi_seismic = calc.phi_seismic
+                    capacity = getattr(calc,cap_par)
+                    if isinstance(capacity,np.ndarray):
+                        capacity = capacity[idx_theta]
+                    product = phi*phi_seismic*capacity
+                    unity = calc.unities[:,idx_theta].max()
+                    row =[label,
+                           mode,
+                           f'{demand:.0f}',
+                           f'{capacity:.0f}',
+                          f'{phi:.2f}',
+                          f'{phi_seismic:.2f}',
+                          f'{product:.0f}',
+                          f'{unity:.2f}']
+                    table.add_row(row)
+                    table.add_hline()
+
+        add_limit_rows(table, tension_limits)
+        table.add_row(shear_header)
+        table.add_hline()
+        add_limit_rows(table, shear_limits)
+
     sec.append(NoEscape(r'\end{footnotesize}'))
     sec.append(NoEscape(r'\end{samepage}'))
 
-    # Shear Limit States Table
-    sec.append(NoEscape(r'\begin{samepage}'))
-    sec.append(NoEscape(r'\begin{footnotesize}'))
-    subheader(sec, 'Shear Limit States')
-    with sec.create(Tabularx('Xcrrrrr')) as table:
-        table.add_hline()
-        header = [NoEscape(r'\rowcolor{lightgray} Limit State'),
-                  'Mode',
-                  NoEscape('$V_u$'),
-                  NoEscape('$V_n$'),
-                  NoEscape(r'$\phi$'),
-                  NoEscape(r'$\phi V_n$'),
-                  'Utilization']
-        units = [NoEscape(r'\rowcolor{lightgray}'), '', '(lbs)', '(lbs)', '', '(lbs)', '']
-        table.add_row(header)
-        table.add_row(units)
-        table.add_hline()
-        results = a.results.loc[a.results['Mode'] == 'Shear'].drop(columns='Seismic Factor')
-        for index, row in results.iterrows():
-            formatted_row = [f"{item:,.2f}" if isinstance(item, (int, float)) else item for item in
-                             row.tolist()]
-            formatted_row[-1] = utilization_text_color(formatted_row[-1], row.iloc[-1], 1.0)
-            table.add_row([index] + formatted_row)
-            table.add_hline()
-    sec.append(NoEscape(r'\end{footnotesize}'))
-    sec.append(NoEscape(r'\end{samepage}'))
+
 
     # Tension-Shear Interaciton
     sec.append(NoEscape(r'\bigskip'))
@@ -2133,31 +2262,28 @@ def concrete_summary_full(item, sec, sec_title, sub_title, plots_dict, anchor_ob
     with sec.create(MiniPage(width=r"3.75in", pos='t')) as mini:
         subheader_nobreak(mini,'Tension-Shear Interaction')
         mini.append(NoEscape(rf'''Tension and shear are combined using the interaction criteria provided in 
-                            ACI318-19, R17.8.
-                            The governing limit states for tension and shear are: 
-                            {a.governing_tension_limit} and {a.governing_shear_limit}. 
-                            The resulting interaction expression is given below:'''))
+                            ACI318-19, R17.8. The resulting interaction expression is given below:'''))
 
-        ok = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if a.DCR <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
-        equality = r'\leq' if a.DCR <= 1 else r'>'
+        ok = r'\textcolor{Green}{\textbf{\textsf{OK}}}' if results.unity <= 1 else r'\textcolor{red}{\textbf{\textsf{NG}}}'
+        equality = r'\leq' if results.unity <= 1 else r'>'
         with mini.create(Math(inline=False)) as math:
             math.append(NoEscape(
                 rf'\left(\frac{{N_u}}{{\phi N_n}}\right)^{{\frac{{5}}{{3}}}}+\left(\frac{{V_u}}{{\phi V_n}}\right)^{{\frac{{5}}{{3}}}} \\'))
             math.append(NoEscape(
-                rf'= \left({a.DCR_N:.2f}\right)^{{\frac{{5}}{{3}}}}+\left({a.DCR_V:.2f}\right)^{{\frac{{5}}{{3}}}} = {a.DCR:.2f}'))
+                rf'= \left({results.tension_unity_by_anchor[idx_anchor,idx_theta]:.2f}\right)^{{\frac{{5}}{{3}}}}+\left({results.shear_unity_by_anchor[idx_anchor,idx_theta]:.2f}\right)^{{\frac{{5}}{{3}}}} = {results.unity:.2f}'))
             math.append(NoEscape(rf'{equality} 1 \quad \text{{{ok}}}'))
 
         # Pull-test Values
-        if item.include_pull_test:
+        if model_record.include_pull_test:
             # mini.append(NoEscape(r'\smallskip'))
             mini.append(NewLine())
             subheader(mini, 'Minimum Anchor Pull-Test Value')
-
+            Tu_max = results.forces[:,0,:].max()
             with mini.create(Flalign(numbering=False, escape=False)) as align:
                 align.append(rf'''&N_{{\text{{Test}} }}
                     &&=3T_u \geq 500 \text{{ lbs}}  
-                    &&= \left(3\right)\left({a.Tu_max:.2f}\right) \geq 500
-                    &&={max([3 * a.Tu_max, 500]):.0f} \text{{ lbs}}
+                    &&= \left(3\right)\left({Tu_max:.2f}\right) \geq 500
+                    &&={max([3 * Tu_max, 500]):.0f} \text{{ lbs}}
                     &\quad \text{{CAC22 (\S6-11.3.2)}}''')
 
 
@@ -2168,8 +2294,11 @@ def concrete_summary_full(item, sec, sec_title, sub_title, plots_dict, anchor_ob
 
 
 
-def _concrete_input_parameters(container, anchor_obj, profile):
+def _concrete_input_parameters(container,
+                               anchor_obj: conc.ConcreteAnchors,
+                               results: conc.ConcreteAnchorResults):
     a = anchor_obj
+    tg = results.tension_groups[results.governing_tension_group]
     container.append(NoEscape(r'\begin{footnotesize}'))
     with container.create(Tabularx('lX', pos='t')) as table:
         table.add_hline()
@@ -2178,21 +2307,21 @@ def _concrete_input_parameters(container, anchor_obj, profile):
         table.add_hline()
         table.add_row(['Condition', r"Cracked(Assumed)"])
         table.add_hline()
-        table.add_row(['Member Profile', rf'{profile}'])
+        table.add_row(['Member Profile', rf'{a.concrete_props.profile}'])
         table.add_hline()
-        table.add_row(['Member Thickness (in)', rf'{a.t_slab:.1f}'])
+        table.add_row(['Member Thickness (in)', rf'{a.concrete_props.t_slab:.1f}'])
         table.add_hline()
-        table.add_row([NoEscape(r"$f'_c$ (psi)"), rf'{a.fc:.0f}'])
+        table.add_row([NoEscape(r"$f'_c$ (psi)"), rf'{a.concrete_props.fc:.0f}'])
         table.add_hline()
-        table.add_row([NoEscape(r"$\lambda_a$"), rf'{a.lw_factor_a:.2f}'])
+        table.add_row([NoEscape(r"$\lambda_a$"), rf'{a.concrete_props.lw_factor_a:.2f}'])
         table.add_hline()
-        table.add_row([NoEscape('Anchor Spacing (in), $s_{min}$'), rf'{a.s_min:.2f}'])
+        table.add_row([NoEscape('Anchor Spacing (in), $s_{min}$'), rf'{a.geo_props.s_min:.2f}'])
         table.add_hline()
         # Use ca values for anchor group, or c values for equipment geometry (if not analysis was run)
-        cx_neg = a.cax_neg if a.cax_neg is not None else a.cx_neg
-        cx_pos = a.cax_pos if a.cax_pos is not None else a.cx_pos
-        cy_neg = a.cay_neg if a.cay_neg is not None else a.cy_neg
-        cy_pos = a.cay_pos if a.cay_pos is not None else a.cy_pos
+        cx_neg = tg.cax_neg #if a.cax_neg is not None else a.cx_neg
+        cx_pos = tg.cax_pos #if a.cax_pos is not None else a.cx_pos
+        cy_neg = tg.cay_neg #if a.cay_neg is not None else a.cy_neg
+        cy_pos = tg.cay_pos #if a.cay_pos is not None else a.cy_pos
         # Convert edge distances to text
         cax_neg_text = NoEscape(r'$\infty$') if np.isinf(cx_neg) else rf'{cx_neg:.2f}'
         cax_pos_text = NoEscape(r'$\infty$') if np.isinf(cx_pos) else rf'{cx_pos:.2f}'
@@ -2204,40 +2333,43 @@ def _concrete_input_parameters(container, anchor_obj, profile):
         table.add_row([NoEscape(r'\hfill $c_{ay-}$'), cay_neg_text])
         table.add_row([NoEscape(r'\hfill $c_{ay+}$'), cay_pos_text])
         table.add_hline()
-        table.add_row(['Anchor Type', rf'{a.anchor_id}'])
+        table.add_row(['Anchor Type', rf'{a.anchor_props.info.anchor_id}'])
         table.add_hline()
-        table.add_row(['ESR', rf'{a.esr:.0f}'])
+        table.add_row(['ESR', rf'{a.anchor_props.info.esr:.0f}'])
         table.add_hline()
     container.append(NoEscape(r'\end{footnotesize}'))
 
-def _spacing_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def _spacing_checks(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                    anchor_obj:conc.ConcreteAnchors,
+                    anchor_results: conc.ConcreteAnchorResults):
     a = anchor_obj
+    ares = anchor_results
     sec.append(NoEscape(r'\begin{samepage}'))
     subheader(sec, 'Anchor Minimum Spacing and Edge Distances')
     with sec.create(MiniPage(width=r"4in", pos='t')) as mini:
-        if a.spacing_requirements['slab_thickness_ok']:
+        if ares.spacing_requirements.slab_thickness_ok:
             mini.append(NoEscape(r'''The member thickness meets the minimum required thickness:'''))
             with mini.create(Math(inline=False)) as m:
                 m.append(NoEscape(r't_{slab} \geq h_{min} \rightarrow '))
                 m.append(NoEscape(
-                    rf'{a.t_slab:.2f} \geq {a.hmin1:.2f} \quad \text{{\textcolor{{Green}}{{ \textbf{{\textsf{{OK}} }} }} }}'))
+                    rf'{a.concrete_props.t_slab:.2f} \geq {a.anchor_props.hmin:.2f} \quad \text{{\textcolor{{Green}}{{ \textbf{{\textsf{{OK}} }} }} }}'))
         else:
             mini.append(NoEscape(r'''The member thickness is insufficient for the chosen anchor:'''))
             with mini.create(Math(inline=False)) as m:
-                m.append(NoEscape(rf't_{{slab}} = {a.t_slab:.2f} < h_{{min}} \rightarrow '))
+                m.append(NoEscape(rf't_{{slab}} = {a.concrete_props.t_slab:.2f} < h_{{min}} \rightarrow '))
                 m.append(NoEscape(
-                    rf'{a.hmin1:.2f} \quad \text{{ \textcolor{{red}}{{\textbf{{\textsf{{NG}} }} }} }}'))
+                    rf'{a.anchor_props.hmin:.2f} \quad \text{{ \textcolor{{red}}{{\textbf{{\textsf{{NG}} }} }} }}'))
 
 
-        mini.append(NoEscape(rf'''The acceptance criteria for spacing and edge distance provided by ESR-{a.esr:.0f} 
+        mini.append(NoEscape(rf'''The acceptance criteria for spacing and edge distance provided by ESR-{a.anchor_props.info.esr:.0f} 
         are listed below corresponding to the given concrete thickness. The plot to the right shows the given anchor spacing and edge distances 
         against these criteria \\'''))
         with mini.create(Alignat(numbering=False, escape=False)) as m:
-            m.append(rf'c_{{min}} = {a.c1:.2f} \text{{ in}} \text{{ for }} s \geq {a.s1:.2f} \text{{ in,}} \quad')
+            m.append(rf'c_{{min}} = {a.anchor_props.c1:.2f} \text{{ in}} \text{{ for }} s \geq {a.anchor_props.s1:.2f} \text{{ in,}} \quad')
             # m.append(rf'\text{{for }}s\geq {a.s1:.2f} \text{{ in}}\\')
-            m.append(rf's_{{min}} = {a.s2:.2f} \text{{ in}} \text{{ for }}c\geq {a.c2:.2f} \text{{ in}}\\')
+            m.append(rf's_{{min}} = {a.anchor_props.s2:.2f} \text{{ in}} \text{{ for }}c\geq {a.anchor_props.c2:.2f} \text{{ in}}\\')
             # m.append(rf'\text{{for }}c\geq {a.c2:.2f} \text{{ in}}\\')
-        if a.spacing_requirements['edge_and_spacing_ok']:
+        if ares.spacing_requirements.edge_and_spacing_ok:
             mini.append(NoEscape(
                 r'\textcolor{Green}{\textbf{Anchor meets spacing and edge distance requirements.}}'))
 
@@ -2251,18 +2383,19 @@ def _spacing_checks(item, sec, sec_title, sub_title, plots_dict, anchor_obj):
     width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
     make_figure(sec, width, file)
 
-    if not all(a.spacing_requirements.values()):
+    if not ares.spacing_requirements.ok:
         sec.append(NoEscape(r'\bigskip'))
         sec.append(NewLine())
         sec.append(NoEscape(
             r'\textcolor{red}{\textbf{Anchor does not meet member thickness and/or spacing requirements!}}'))
     sec.append(NoEscape(r'\end{samepage}'))
 
-def anchor_tension(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def anchor_tension(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
-    if a.Nsa:
+    if a.anchor_props.Nsa:
         sec.append(NoEscape(rf'Tensile strength reported by manufacturer\
-                            (see ESR {a.esr:.0f}): $N_{{sa}} = {a.Nsa:.0f}$ lbs'))
+                            (see ESR {a.anchor_props.info.esr:.0f}): $N_{{sa}} = {a.anchor_props.Nsa:.0f}$ lbs'))
         # with sec.create(Flalign()) as fl:
         #     fl.append(NoEscape(
         #         rf'&N_{{sa}} = {a.Nsa} \text{{ lbs}} && \text{{Manufacturer-Provided Value. See ESR: {a.esr:.0f}}}'))
@@ -2271,9 +2404,12 @@ def anchor_tension(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
         raise Exception('Need to provide report functionality for non-tabulated Nsa')
 
 
-def tension_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def tension_breakout(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
-
+    tg = results.tension_groups[results.governing_tension_group]
+    calc = results.tension_breakout_calcs[results.governing_tension_group]
+    idx_theta = results.governing_theta_idx
 
     with sec.create(MiniPage(width=NoEscape('2.5in'),pos='t')) as leftcol:
         # Input Paramters Table
@@ -2283,16 +2419,16 @@ def tension_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
             header = [NoEscape(r'\rowcolor{lightgray} Input Parameters'), '', '']
             table.add_row(header)
             table.add_hline()
-            table.add_row(['Effective embedment (in)', NoEscape('$h_{ef}$'), NoEscape(f'{a.hef}')])
+            table.add_row(['Effective embedment (in)', NoEscape('$h_{ef}$'), NoEscape(f'{calc.hef}')])
             table.add_hline()
-            table.add_row(['Edge Distances (in)', NoEscape('$c_{a,x+}$'), NoEscape(f'{a.cax_pos:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,x-}$'), NoEscape(f'{a.cax_neg:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,y+}$'), NoEscape(f'{a.cay_pos:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,y-}$'), NoEscape(f'{a.cay_neg:.2f}')])
+            table.add_row(['Edge Distances (in)', NoEscape('$c_{a,x+}$'), NoEscape(f'{tg.cax_pos:.2f}')])
+            table.add_row(['', NoEscape('$c_{a,x-}$'), NoEscape(f'{tg.cax_neg:.2f}')])
+            table.add_row(['', NoEscape('$c_{a,y+}$'), NoEscape(f'{tg.cay_pos:.2f}')])
+            table.add_row(['', NoEscape('$c_{a,y-}$'), NoEscape(f'{tg.cay_neg:.2f}')])
             table.add_hline()
-            table.add_row(['Critical Edge Dist. (in)', NoEscape('$c_{ac}$'), NoEscape(f'{a.cac:.2f}')])
+            table.add_row(['Critical Edge Dist. (in)', NoEscape('$c_{ac}$'), NoEscape(f'{a.anchor_props.cac:.2f}')])
             table.add_hline()
-            table.add_row(['Effectivness Factor', NoEscape('$k_c$'), NoEscape(f'{a.kc:.1f}')])
+            table.add_row(['Effectivness Factor', NoEscape('$k_c$'), NoEscape(f'{a.anchor_props.kc:.1f}')])
             table.add_hline()
         leftcol.append(NoEscape(r'\end{footnotesize}'))
         leftcol.append(NewLine())
@@ -2312,33 +2448,33 @@ def tension_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
             # ANco
             fl.append(NoEscape(r'&A_{Nco} &&= 9h_{ef}^2'))
             fl.append(NoEscape(
-                rf'=9({a.hef:.1f})^2 &&={a.Anco:.1f} \text{{ in}}^2 &&\text{{ACI318-19 (17.6.2.1.4)}}\\'))
+                rf'=9({calc.hef:.1f})^2 &&={calc.Anco:.1f} \text{{ in}}^2 &&\text{{ACI318-19 (17.6.2.1.4)}}\\'))
 
             # ANc
-            fl.append(NoEscape(rf'''&A_{{Nc}} &&=({a.bxN:.1f})\times ({a.byN:.1f}) 
-            && = {a.Anc:.1f} \text{{ in}}^2 && \text{{ACI318-19 17.6.2.1.2}}\\ '''))
+            fl.append(NoEscape(rf'''&A_{{Nc}} &&=({calc.bxN:.1f})\times ({calc.byN:.1f}) 
+            && = {calc.Anc:.1f} \text{{ in}}^2 && \text{{ACI318-19 17.6.2.1.2}}\\ '''))
 
             # Psi,ecN (Eccentricity Factor)
             fl.append(rf'''&e_{{Nx}} &&= \frac{{\sum{{ \left(x_i-\bar{{x}}\right) T_i }}}}{{ \sum{{T_i}} }}
-                &&={a.ex:.2f} \text{{ in}}\\''')
+                &&={calc.ex[idx_theta]:.2f} \text{{ in}}\\''')
             fl.append(rf'''&\psi_{{ec,Nx}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{Nx}} }}{{1.5h_{{ef}} }}\right)}}
-            && ={a.psi_ecNx:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
+            && ={calc.psi_ecNx[idx_theta]:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
 
             fl.append(rf'''&e_{{Ny}} &&= \frac{{\sum{{ \left(y_i-\bar{{y}}\right) T_i }}}}{{ \sum{{T_i}} }}
-                &&={a.ey:.2f} \text{{ in}}\\''')
+                &&={calc.ey[idx_theta]:.2f} \text{{ in}}\\''')
             fl.append(rf'''&\psi_{{ec,Ny}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{Ny}} }}{{1.5h_{{ef}} }}\right)}}
-            && ={a.psi_ecNy:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
+            && ={calc.psi_ecNy[idx_theta]:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
 
-            fl.append(rf'''&\psi_{{ec,N}} && =\psi_{{ec,Nx}} \times \psi_{{ec,Ny}} &&={a.psi_ecN:.2f}\\''')
+            fl.append(rf'''&\psi_{{ec,N}} && =\psi_{{ec,Nx}} \times \psi_{{ec,Ny}} &&={calc.psi_ecN[idx_theta]:.2f}\\''')
 
             # Psi,ed (Edge Factor)
             fl.append(rf'''&\psi_{{ed,N}} && = \min{{\left(1.0,\quad 0.7 + 0.3\frac {{ c_{{a,min}}}}{{1.5h_{{ef}} }} \right)}}
-                &&={a.psi_edN:.2f} &&\text{{ACI318-19 (17.6.2.4.1)}}\\''')
+                &&={calc.psi_edN:.2f} &&\text{{ACI318-19 (17.6.2.4.1)}}\\''')
 
             # Psi,cN (Breakout cracking factor)
-            if a.psi_cN:
+            if calc.psi_cN:
                 fl.append(rf'''&\psi_{{c,N}} &&  
-                &&={a.psi_cN:.2f} && \text{{ESR: {a.esr:.0f}}}\\''')
+                &&={calc.psi_cN:.2f} && \text{{ESR: {a.anchor_props.info.esr:.0f}}}\\''')
             else:
                 # Todo: provide report option for non-tabulated Breakout cracking factor
                 raise Exception('Need to provide report functionality for non-tabulated psi_cN')
@@ -2346,119 +2482,34 @@ def tension_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
             # Psi,cpN (Breakout splitting factor)
             fl.append(
                 r'&\psi_{cp,N} && = \min{\left(1.0, \max{\left(\frac{c_{a,min}}{c_{ac}},\frac{1.5h_{ef}}{c_{ac}}\right)}\right)}')
-            fl.append(rf' &&={a.psi_cpN:.2f} &&\text{{ACI318-19 (17.6.2.6.1)}}\\')
+            fl.append(rf' &&={calc.psi_cpN:.2f} &&\text{{ACI318-19 (17.6.2.6.1)}}\\')
 
             # Nb
-            if all([a.n_anchor == 1,
-                    a.anchor_type in ['Headed Stud', 'Headed Bolt'],
-                    11 <= a.hef <= 25]):
+            if all([a.geo_props.n_anchor == 1,
+                    a.anchor_props.info.anchor_type in ['Headed Stud', 'Headed Bolt'],
+                    11 <= calc.hef <= 25]):
                 fl.append(rf'''&N_b && =16\lambda_a\sqrt{{f\prime _c}} h_{{ef}}^{{5/3}}
-                && =16({a.lw_factor_a})\sqrt{{ ({a.fc}) }}({a.hef})^{{5/3}}
+                && =16({a.concrete_props.lw_factor_a})\sqrt{{ ({a.concrete_props.fc}) }}({calc.hef})^{{5/3}}
                 ={a.Nb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.2.3)}}\\''')
             else:
                 fl.append(rf'''&N_b && =k_c\lambda_a\sqrt{{f_c^\prime}} h_{{ef}}^{{1.5}}
-                            =({a.kc})({a.lw_factor_a})\sqrt{{ ({a.fc}) }}({a.hef})^{{1.5}}
-                            &&={a.Nb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.2.1)}}\\''')
+                            =({a.anchor_props.kc})({a.concrete_props.lw_factor_a})\sqrt{{ ({a.concrete_props.fc}) }}({calc.hef})^{{1.5}}
+                            &&={calc.Nb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.2.1)}}\\''')
 
             # Ncb
             fl.append(r'&N_{cb} &&= \frac{A_{Nc}}{A_{Nco}}\psi_{ec,N}\psi_{ed,N}\psi_{c,N}\psi_{cp,N}N_b')
-            fl.append(rf'&&={a.Ncb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.1)}}')
+            fl.append(rf'&&={calc.Ncb[idx_theta]:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.1)}}')
         rightcol.append(NoEscape(r'}')) # Close local font size group
 
-
-def tension_breakout_OLD(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def tension_pullout(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
+    tg = results.tension_groups[results.governing_tension_group]
+    calc = results.anchor_pullout_calcs[results.governing_tension_group]
 
-    # Breakout Figure
-    # file, width = plots._anchor_diagram_vtk(a, show_tension_breakout=True,
-    #                                         show_tension_forces=True)
-    fig_name = 'diagram'
-    width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
-    make_figure(sec, width, file)
-
-    # Input Parameters Table
-    sec.append(NoEscape(r'\hfill'))
-    with sec.create(MiniPage(width=r'3.75in', pos='t')) as mini:
-        with mini.create(Tabularx('Xcc', pos='t')) as table:
-            table.add_hline()
-            header = [NoEscape(r'\rowcolor{lightgray} Input Parameters'), '', '']
-            table.add_row(header)
-            table.add_hline()
-            table.add_row(['Effective embedment (in)', NoEscape('$h_{ef}$'), NoEscape(f'{a.hef}')])
-            table.add_hline()
-            table.add_row(['Edge Distances (in)', NoEscape('$c_{a,x+}$'), NoEscape(f'{a.cax_pos:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,x-}$'), NoEscape(f'{a.cax_neg:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,y+}$'), NoEscape(f'{a.cay_pos:.2f}')])
-            table.add_row(['', NoEscape('$c_{a,y-}$'), NoEscape(f'{a.cay_neg:.2f}')])
-            table.add_hline()
-            table.add_row(['Critical Edge Dist. (in)', NoEscape('$c_{ac}$'), NoEscape(f'{a.cac:.2f}')])
-            table.add_hline()
-            table.add_row(['Effectivness Factor', NoEscape('$k_c$'), NoEscape(f'{a.kc:.1f}')])
-            table.add_hline()
-    sec.append(NewLine())
-    sec.append(NoEscape(r'\smallskip'))
-    with sec.create(Flalign()) as fl:
-        # ANco
-        fl.append(NoEscape(r'&A_{Nco} &&= 9h_{ef}^2'))
-        fl.append(NoEscape(
-            rf'=9({a.hef:.1f})^2 &&={a.Anco:.1f} \text{{ in}}^2 &&\text{{ACI318-19 (17.6.2.1.4)}}\\'))
-
-        # ANc
-        fl.append(NoEscape(rf'''&A_{{Nc}} &&=({a.bxN:.1f})\times ({a.byN:.1f}) 
-        && = {a.Anc:.1f} \text{{ in}}^2 && \text{{ACI318-19 17.6.2.1.2}}\\ '''))
-
-        # Psi,ecN (Eccentricity Factor)
-        fl.append(rf'''&e_{{Nx}} &&= \frac{{\sum{{ \left(x_i-\bar{{x}}\right) T_i }}}}{{ \sum{{T_i}} }}
-            &&={a.ex:.2f} \text{{ in}}\\''')
-        fl.append(rf'''&\psi_{{ec,Nx}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{Nx}} }}{{1.5h_{{ef}} }}\right)}}
-        && ={a.psi_ecNx:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
-
-        fl.append(rf'''&e_{{Ny}} &&= \frac{{\sum{{ \left(y_i-\bar{{y}}\right) T_i }}}}{{ \sum{{T_i}} }}
-            &&={a.ey:.2f} \text{{ in}}\\''')
-        fl.append(rf'''&\psi_{{ec,Ny}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{Ny}} }}{{1.5h_{{ef}} }}\right)}}
-        && ={a.psi_ecNy:.2f}\text{{ in}} && \text{{ACI318-19 (17.6.2.3.1)}}\\''')
-
-        fl.append(rf'''&\psi_{{ec,N}} && =\psi_{{ec,Nx}} \times \psi_{{ec,Ny}} &&={a.psi_ecN:.2f}\\''')
-
-        # Psi,ed (Edge Factor)
-        fl.append(rf'''&\psi_{{ed,N}} && = \min{{\left(1.0,\quad 0.7 + 0.3\frac {{ c_{{a,min}}}}{{1.5h_{{ef}} }} \right)}}
-            &&={a.psi_edN:.2f} &&\text{{ACI318-19 (17.6.2.4.1)}}\\''')
-
-        # Psi,cN (Breakout cracking factor)
-        if a.psi_cN:
-            fl.append(rf'''&\psi_{{c,N}} &&  
-            &&={a.psi_cN:.2f} && \text{{ESR: {a.esr:.0f}}}\\''')
-        else:
-            # Todo: provide report option for non-tabulated Breakout cracking factor
-            raise Exception('Need to provide report functionality for non-tabulated psi_cN')
-
-        # Psi,cpN (Breakout splitting factor)
-        fl.append(
-            r'&\psi_{cp,N} && = \min{\left(1.0, \max{\left(\frac{c_{a,min}}{c_{ac}},\frac{1.5h_{ef}}{c_{ac}}\right)}\right)}')
-        fl.append(rf' &&={a.psi_cpN:.2f} &&\text{{ACI318-19 (17.6.2.6.1)}}\\')
-
-        # Nb
-        if all([a.n_anchor == 1,
-                a.anchor_type in ['Headed Stud', 'Headed Bolt'],
-                11 <= a.hef <= 25]):
-            fl.append(rf'''&N_b && =16\lambda_a\sqrt{{f\prime _c}} h_{{ef}}^{{5/3}}
-            && =16({a.lw_factor_a})\sqrt{{ ({a.fc}) }}({a.hef})^{{5/3}}
-            ={a.Nb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.2.3)}}\\''')
-        else:
-            fl.append(rf'''&N_b && =k_c\lambda_a\sqrt{{f_c^\prime}} h_{{ef}}^{{1.5}}
-                        =({a.kc})({a.lw_factor_a})\sqrt{{ ({a.fc}) }}({a.hef})^{{1.5}}
-                        &&={a.Nb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.2.1)}}\\''')
-
-        # Ncb
-        fl.append(r'&N_{cb} &&= \frac{A_{Nc}}{A_{Nco}}\psi_{ec,N}\psi_{ed,N}\psi_{c,N}\psi_{cp,N}N_b')
-        fl.append(rf'&&={a.Ncb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.6.2.1)}}')
-
-
-def tension_pullout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
-    a = anchor_obj
-    if a.Np:
+    if calc.Np:
         sec.append(NoEscape(rf'Pull-out strength reported by manufacturer\
-                            (see ESR {a.esr:.0f}): $N_{{p}} = {a.Np:.0f}$ lbs'))
+                            (see ESR {a.anchor_props.info.esr:.0f}): $N_{{p}} = {calc.Np:.0f}$ lbs'))
         # with sec.create(Flalign()) as fl:
         #     fl.append(NoEscape(
         #         rf'&N_{{sa}} = {a.Nsa} \text{{ lbs}} && \text{{Manufacturer-Provided Value. See ESR: {a.esr:.0f}}}'))
@@ -2467,29 +2518,35 @@ def tension_pullout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
         raise Exception('Need to provide report functionality for non-tabulated Np')
 
 
-def side_face_blowout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def side_face_blowout(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
     # todo: add side face blowout section (for headed studs)
 
 
-def bond_strength(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def bond_strength(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
     # todo: add bond strength section (for epoxy base_anchors)
 
 
-def anchor_shear(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def anchor_shear(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
-    if a.Vsa:
+    if a.anchor_props.Vsa:
         sec.append(NoEscape(rf'Anchor shear strength reported by manufacturer\
-                            (see ESR {a.esr:.0f}): $V_{{sa}} = {a.Vsa:.0f}$ lbs'))
+                            (see ESR {a.anchor_props.info.esr:.0f}): $V_{{sa}} = {a.anchor_props.Vsa:.0f}$ lbs'))
     else:
         # Todo: provide report option for non-tabulated Vsa
         raise Exception('Need to provide report functionality for non-tabulated Vsa')
 
 
-def shear_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def shear_breakout(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
-    key = a.governing_shear_breakout_case
+    sg = results.shear_groups[results.governing_shear_group]
+    calc = results.shear_breakout_calcs[results.governing_shear_group]
+    idx_theta = results.governing_theta_idx
 
     with sec.create(MiniPage(width=NoEscape('2.5in'), pos='t')) as leftcol:
         # Input Parameter Table
@@ -2498,16 +2555,16 @@ def shear_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
             table.add_hline()
             table.add_row([NoEscape(r'\rowcolor{lightgray} Input Parameters'), '', ''])
             table.add_hline()
-            table.add_row(['Effective embedment (in)', NoEscape('$h_{ef}$'), NoEscape(f'{a.hef}')])
+            table.add_row(['Effective embedment (in)', NoEscape('$h_{a,eff}$'), NoEscape(f'{calc.ha_eff}')])
             table.add_hline()
             table.add_row(['Edge Distances (in)',
-                           NoEscape('$c_{a1}$'), NoEscape(f'{a.vcb_pars[key]["ca1"]}')])
-            table.add_row(['', NoEscape('$c_{a2+}$'), NoEscape(f'{a.vcb_pars[key]["ca2+"]}')])
-            table.add_row(['', NoEscape('$c_{a2-}$'), NoEscape(f'{a.vcb_pars[key]["ca2-"]}')])
+                           NoEscape('$c_{a1}$'), NoEscape(f'{sg.ca1:2f}')])
+            table.add_row(['', NoEscape('$c_{a2+}$'), NoEscape(f'{sg.ca2p:.2f}')])
+            table.add_row(['', NoEscape('$c_{a2-}$'), NoEscape(f'{sg.ca2n:.2f}')])
             table.add_hline()
-            table.add_row(['Load Bearing Length (in)', NoEscape('$l_{e}$'), NoEscape(f'{a.le}')])
+            table.add_row(['Load Bearing Length (in)', NoEscape('$l_{e}$'), NoEscape(f'{a.anchor_props.le}')])
             table.add_hline()
-            table.add_row(['Anchor Diameter (in)', NoEscape('$d_a$'), NoEscape(f'{a.da}')])
+            table.add_row(['Anchor Diameter (in)', NoEscape('$d_a$'), NoEscape(f'{a.anchor_props.da}')])
             table.add_hline()
         leftcol.append(NoEscape(r'\end{footnotesize}'))
         leftcol.append(NewLine())
@@ -2527,185 +2584,74 @@ def shear_breakout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
         with rightcol.create(Flalign()) as fl:
             # AVco
             fl.append(r'&A_{Vco} &&= 4.5c_{a1}^2')
-            fl.append(rf'''=4.5({a.vcb_pars[key]["ca1"]})^2 &&={a.vcb_pars[key]["Avco"]} \text{{ in}}^2 
+            fl.append(rf'''=4.5({sg.ca1:.2f})^2 &&={calc.Avco:.2f} \text{{ in}}^2 
                              &&\text{{ACI318-19 (17.7.2.1.3)}}\\''')
 
             # AVc
-            fl.append(rf'''&A_{{Vc}} &&=({a.vcb_pars[key]["b"]})\times ({a.vcb_pars[key]["ha"]}) 
-                            && = {a.vcb_pars[key]["Avc"]} \text{{ in}}^2 && \text{{ACI318-19 17.7.2.1.1}}\\ ''')
+            fl.append(rf'''&A_{{Vc}} &&=({calc.b:.2f})\times ({calc.ha_eff:.2f}) 
+                            && = {calc.Avc:.2f} \text{{ in}}^2 && \text{{ACI318-19 17.7.2.1.1}}\\ ''')
 
             # Psi,ecN (Eccentricity Factor)
-            if a.governing_shear_breakout_case[0] == 'y':
+            if sg.direction in [conc.ShearDirLabel.YP, conc.ShearDirLabel.YN]:
                 fl.append(rf'''&e_{{V}} &&= \frac{{\sum{{ \left(x_i-\bar{{x}}\right) V_{{yi}} }}}}{{ \sum{{V_{{yi}}}} }}
-                                    &&={a.vcb_pars[key]['eV']:.2f} \text{{ in}}\\''')
+                                    &&={calc.ecc[idx_theta]:.2f} \text{{ in}}\\''')
                 fl.append(rf'''&\psi_{{ec,V}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{V}} }}{{1.5c_{{a1}} }}\right)}}
-                                && ={a.vcb_pars[key]['psi_ecV']:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
+                                && ={calc.psi_ecV[idx_theta]:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
             else:
                 fl.append(rf'''&e_{{V}} &&= \frac{{\sum{{ \left(y_i-\bar{{y}}\right) V_{{yi}} }}}}{{ \sum{{V_{{yi}}}} }}
-                                    &&={a.vcb_pars[key]['eV']} \text{{ in}}\\''')
+                                    &&={calc.ecc[idx_theta]:.2f} \text{{ in}}\\''')
                 fl.append(rf'''&\psi_{{ec,V}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{V}} }}{{1.5c_{{a1}} }}\right)}}
-                                && ={a.vcb_pars[key]['psi_ecV']:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
+                                && ={calc.psi_ecV[idx_theta]:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
 
             # Psi,ed (Edge Factor)
             fl.append(rf'''&\psi_{{ed,V}} && = \min{{\left(1.0,\quad 0.7 + 0.3\frac {{ c_{{a2,min}}}}{{1.5h_{{ef}} }} \right)}}
-                                &&={a.vcb_pars[key]['psi_edV']:.2f} &&\text{{ACI318-19 (17.7.2.4.1)}}\\''')
+                                &&={calc.psi_edV:.2f} &&\text{{ACI318-19 (17.7.2.4.1)}}\\''')
 
             # Psi,cV (Breakout cracking factor)
             fl.append(rf'''&\psi_{{c,V}} &&
-                            &&={a.vcb_pars[key]["psi_cV"]:.2f} &&\text{{ACI318-19 17.7.2.5.1}}\\''')
+                            &&={calc.psi_cV:.2f} &&\text{{ACI318-19 17.7.2.5.1}}\\''')
 
             # Psi,hV (Breakout thickenss factor)
             fl.append(
                 r'&\psi_{h,V} && = \max{\left(1.0,\quad \sqrt{\frac{1.5c_{a1}}{h_{a}}}\right)}')
-            fl.append(rf' &&={a.vcb_pars[key]["psi_hV"]:.2f} &&\text{{ACI318-19 (17.7.2.6.1)}}\\')
+            fl.append(rf' &&={calc.psi_hV:.2f} &&\text{{ACI318-19 (17.7.2.6.1)}}\\')
 
             # Vb
             fl.append(r'''&V_b &&= \min{ \left( 7 \left(\frac{l_e}{d_a}\right)^{0.2}\sqrt{d_a},\quad 9\right)}
                             \lambda_a \sqrt{f_c'}\left(c_{a1}\right)^{1.5}''')
             fl.append(
-                rf'&& = {a.vcb_pars[key]["Vb"]:,.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.2.1)}}\\')
+                rf'&& = {calc.Vb:.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.2.1)}}\\')
 
             # # Vcb
             fl.append(r'&V_{cb} &&= \frac{A_{Vc}}{A_{Vco}}\psi_{ec,V}\psi_{ed,V}\psi_{c,V}\psi_{h,V}V_b')
             fl.append(
-                rf'&&={a.vcb_pars[key]["Vcb"]:,.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.1)}}')
+                rf'&&={calc.Vcb[idx_theta]:,.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.1)}}')
         rightcol.append(NoEscape(r'}')) # Close local font size group
     sec.append(NewLine())
-    breakout_text = {'xp_edge': 'positive $X$ face breakout of edge anchors',
-                     'xp_full': 'positive $X$ face breakout of anchor group',
-                     'xn_edge': 'negative $X$ face breakout of edge anchors',
-                     'xn_full': 'negative $X$ face breakout of anchors group',
-                     'yp_edge': 'positive $Y$ face breakout of edge anchors',
-                     'yp_full': 'positive $Y$ face breakout of anchor group',
-                     'yn_edge': 'negative $Y$ face breakout of edge anchors',
-                     'yn_full': 'negative $Y$ face breakout of anchor group'}
 
     sec.append(NoEscape(r'{\footnotesize'))
     sec.append(NoEscape('''Note: ACI318 specifies that unless base anchors are welded to a common base plate,
-        two conditions should be checked:'''))
-    with sec.create(Enumerate()) as enum:
-        enum.add_item('Full shear breakout cone against total load to all base anchors')
-        enum.add_item('Breakout cone of edge base anchors against load to those base anchors.')
-
-    sec.append(NoEscape(f'''The two breakout modes (edge anchors only, and full anchor group) are 
-        checked in positive and negative $X$- and $Y$-directions where an edge condition is present.
-        The results from all applicable breakout cases are provided in the anchorage summary section.
-        Here, calculations are provided for the governing breakout of the 
-        {breakout_text[key]}. '''))
+        anchor breakout conditions must be considered in which a subset of anchors (with their respective proportion 
+        of the toal load) forms a breakout cone at a lower capacity than the breakout cone of the entire group.
+         In these calculations, all possible shear breakout groups were evaluated, with the governing case presented here.'''))
     sec.append(NoEscape(r'}'))
 
 
-def shear_breakout_OLD(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
+def shear_pryout(model_record: ModelRecord, sec, sec_title, sub_title, plots_dict,
+                          anchor_obj: conc.ConcreteAnchors, results: conc.ConcreteAnchorResults):
     a = anchor_obj
+    tg = results.tension_groups[results.governing_tension_group]
+    calc = results.shear_pryout_calcs[results.governing_tension_group]
+    idx_theta = results.governing_theta_idx
 
-    breakout_text = {'xp_edge': 'positive $X$ face breakout of edge anchors',
-                     'xp_full': 'positive $X$ face breakout of anchor group',
-                     'xn_edge': 'negative $X$ face breakout of edge anchors',
-                     'xn_full': 'negative $X$ face breakout of anchors group',
-                     'yp_edge': 'positive $Y$ face breakout of edge anchors',
-                     'yp_full': 'positive $Y$ face breakout of anchor group',
-                     'yn_edge': 'negative $Y$ face breakout of edge anchors',
-                     'yn_full': 'negative $Y$ face breakout of anchor group'}
-
-    key = a.governing_shear_breakout_case
-
-    sec.append(NoEscape('''ACI318 spefies that unless base anchors are welded to a common base plate,
-    two conditions should be checked:'''))
-    with sec.create(Enumerate()) as enum:
-        enum.add_item('Full shear breakout cone against total load to all base anchors')
-        enum.add_item('Breakout cone of edge base anchors against load to those base anchors.')
-
-    sec.append(NoEscape(f'''The two breakout modes (edge anchors only, and full anchor group) are 
-    checked in positive and negative $X$- and $Y$-directions where an edge condition is present.
-    The results from all applicable breakout cases are provided in the anchorage summary section.
-    Here, calculations are provided for the governing breakout of the 
-    {breakout_text[key]}. '''))
-    sec.append(NewLine())
-
-    # Breakout Cone Graphic
-    # file, width = plots._anchor_diagram_vtk(a, shear_breakout_case=a.governing_shear_breakout_case)
-    fig_name = 'diagram'
-    width, file = plots_dict[make_figure_filename(sec_title, sub_title, fig_name)]
-    make_figure(sec, width, file)
-
-    # Input Parameter Table
-    sec.append(NoEscape(r'\hfill'))
-    with sec.create(MiniPage(width=r'3.75in', pos='t')) as mini:
-        with mini.create(Tabularx('Xcc', pos='t')) as table:
-            table.add_hline()
-            table.add_row([NoEscape(r'\rowcolor{lightgray} Input Parameters'), '', ''])
-            table.add_hline()
-            table.add_row(['Effective embedment (in)', NoEscape('$h_{ef}$'), NoEscape(f'{a.hef}')])
-            table.add_hline()
-            table.add_row(['Edge Distances (in)',
-                           NoEscape('$c_{a1}$'), NoEscape(f'{a.vcb_pars[key]["ca1"]:.2f}')])
-            table.add_row(['', NoEscape('$c_{a2+}$'), NoEscape(f'{a.vcb_pars[key]["ca2+"]:.2f}')])
-            table.add_row(['', NoEscape('$c_{a2-}$'), NoEscape(f'{a.vcb_pars[key]["ca2-"]:.2f}')])
-            table.add_hline()
-            table.add_row(['Load Bearing Length (in)', NoEscape('$l_{e}$'), NoEscape(f'{a.le:.2f}')])
-            table.add_hline()
-            table.add_row(['Anchor Diameter (in)', NoEscape('$d_a$'), NoEscape(f'{a.da:.2f}')])
-            table.add_hline()
-    sec.append(NewLine())
-    sec.append(NoEscape(r'\smallskip'))
-
-    with sec.create(Flalign()) as fl:
-        # AVco
-        fl.append(r'&A_{Vco} &&= 4.5c_{a1}^2')
-        fl.append(rf'''=4.5({a.vcb_pars[key]["ca1"]})^2 &&={a.vcb_pars[key]["Avco"]} \text{{ in}}^2 
-                         &&\text{{ACI318-19 (17.7.2.1.3)}}\\''')
-
-        # AVc
-        fl.append(rf'''&A_{{Vc}} &&=({a.vcb_pars[key]["b"]})\times ({a.vcb_pars[key]["ha"]}) 
-                        && = {a.vcb_pars[key]["Avc"]} \text{{ in}}^2 && \text{{ACI318-19 17.7.2.1.1}}\\ ''')
-
-        # Psi,ecN (Eccentricity Factor)
-        if a.governing_shear_breakout_case[0] == 'y':
-            fl.append(rf'''&e_{{V}} &&= \frac{{\sum{{ \left(x_i-\bar{{x}}\right) V_{{yi}} }}}}{{ \sum{{V_{{yi}}}} }}
-                                &&={a.vcb_pars[key]['eV']:.2f} \text{{ in}}\\''')
-            fl.append(rf'''&\psi_{{ec,V}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{V}} }}{{1.5c_{{a1}} }}\right)}}
-                            && ={a.vcb_pars[key]['psi_ecV']:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
-        else:
-            fl.append(rf'''&e_{{V}} &&= \frac{{\sum{{ \left(y_i-\bar{{y}}\right) V_{{yi}} }}}}{{ \sum{{V_{{yi}}}} }}
-                                &&={a.vcb_pars[key]['eV']} \text{{ in}}\\''')
-            fl.append(rf'''&\psi_{{ec,V}} &&= \frac{{1}}{{ \left(1+\frac{{ e_{{V}} }}{{1.5c_{{a1}} }}\right)}}
-                            && ={a.vcb_pars[key]['psi_ecV']:.2f}\text{{ in}} && \text{{ACI318-19 (17.7.2.3.1)}}\\''')
-
-        # Psi,ed (Edge Factor)
-        fl.append(rf'''&\psi_{{ed,V}} && = \min{{\left(1.0,\quad 0.7 + 0.3\frac {{ c_{{a2,min}}}}{{1.5h_{{ef}} }} \right)}}
-                            &&={a.vcb_pars[key]['psi_edV']:.2f} &&\text{{ACI318-19 (17.7.2.4.1)}}\\''')
-
-        # Psi,cV (Breakout cracking factor)
-        fl.append(rf'''&\psi_{{c,V}} &&
-                        &&={a.vcb_pars[key]["psi_cV"]:.2f} &&\text{{ACI318-19 17.7.2.5.1}}\\''')
-
-        # Psi,hV (Breakout thickenss factor)
-        fl.append(
-            r'&\psi_{h,V} && = \max{\left(1.0,\quad \sqrt{\frac{1.5c_{a1}}{h_{a}}}\right)}')
-        fl.append(rf' &&={a.vcb_pars[key]["psi_hV"]:.2f} &&\text{{ACI318-19 (17.7.2.6.1)}}\\')
-
-        # Vb
-        fl.append(r'''&V_b &&= \min{ \left( 7 \left(\frac{l_e}{d_a}\right)^{0.2}\sqrt{d_a},\quad 9\right)}
-                        \lambda_a \sqrt{f_c'}\left(c_{a1}\right)^{1.5}''')
-        fl.append(
-            rf'&& = {a.vcb_pars[key]["Vb"]:,.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.2.1)}}\\')
-
-        # # Vcb
-        fl.append(r'&V_{cb} &&= \frac{A_{Vc}}{A_{Vco}}\psi_{ec,V}\psi_{ed,V}\psi_{c,V}\psi_{h,V}V_b')
-        fl.append(
-            rf'&&={a.vcb_pars[key]["Vcb"]:,.2f} \text{{ lbs}} && \text{{ACI318-19 (17.7.2.1)}}')
-
-
-def shear_pryout(_, sec, sec_title, sub_title, plots_dict, anchor_obj):
-    a = anchor_obj
     with sec.create(Flalign()) as fl:
         fl.append(r'& k_{cp} &&= \begin{cases} '
                   r'1.0 & \text{for } h_{ef} < 2.5 \text{ in}\\'
                   r'2.0 & \text{for } h_{ef} \geq 2.5 \text{ in} '
                   r'\end{cases}')
-        fl.append(rf'&&={a.kcp}\\')
+        fl.append(rf'&&={calc.kcp}\\')
         fl.append(r'& V_{cp} && = k_{cp}N_{cp}')
-        fl.append(rf'&&={a.Vcp:,.2f}\text{{ lbs}} &&\text{{ACI318-19 (17.7.3.1)}}')
+        fl.append(rf'&&={calc.Vcp[idx_theta]:,.2f}\text{{ lbs}} &&\text{{ACI318-19 (17.7.3.1)}}')
 
 
 def cmu_summary_full(item, sec, sec_title, sub_title, plots_dict):
