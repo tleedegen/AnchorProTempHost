@@ -254,8 +254,10 @@ class CalculationReport:
             # Loads Table
             if self.params.load_mode == "Global":
                 with self.doc.create(MiniPage(width=r"3in", pos='t', align='l')) as mini:
-                    subheader(mini, "Applied Global Loads")
+                    # USE subheader_nobreak HERE:
+                    subheader_nobreak(mini, "Applied Global Loads")
                     with mini.create(Tabular('lr')) as table:
+                        
                         table.add_hline()
                         for k, v in self.params.loads.items():
                             unit = 'in-lbs' if k.startswith('M') or k == 'T' else 'lbs'
