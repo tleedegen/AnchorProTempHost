@@ -257,7 +257,7 @@ class CalculationReport:
                     # USE subheader_nobreak HERE:
                     subheader_nobreak(mini, "Applied Global Loads")
                     with mini.create(Tabular('lr')) as table:
-                        
+
                         table.add_hline()
                         for k, v in self.params.loads.items():
                             unit = 'in-lbs' if k.startswith('M') or k == 'T' else 'lbs'
@@ -284,12 +284,18 @@ class CalculationReport:
             
             # Generate diagram using existing plot logic
             try:
-                # We reuse the logic from reports/plots.py
-                # Note: plots.anchor_basic takes (model_record, anchor_obj, anchor_results)
-                # We can pass None for model_record as it ignores it.
                 fig, width = plots.anchor_basic(None, self.anchor_obj, self.results)
-                filename = f"anchor_diagram_{id(self)}"
-                file_path = plots.vtk_save(fig, filename=filename)
+                
+                # FIX: Force image to save in the managed output_path
+                # We do not add .png extension here assuming vtk_save adds it
+                image_name = f"anchor_diagram_{id(self)}"
+                save_path = os.path.join(self.output_path, image_name)
+                
+                # Save to the specific path
+                file_path = plots.vtk_save(fig, filename=save_path)
+                
+                # Ensure forward slashes for LaTeX compatibility
+                file_path = file_path.replace('\\', '/')
                 
                 make_figure(self.doc, width, file_path, title="Anchor Group Diagram", use_minipage=True)
             except Exception as e:
