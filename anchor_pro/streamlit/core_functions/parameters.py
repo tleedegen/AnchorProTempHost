@@ -58,6 +58,17 @@ class ParameterGroup:
                 return True
         return False
     
+    def delete_parameter(self, name: str) -> bool:
+        """
+        Deletes a parameter set by name.
+        Returns True if found and deleted, False otherwise.
+        """
+        for i, p in enumerate(self.parameters):
+            if p.name == name:
+                del self.parameters[i]
+                return True
+        return False
+    
     def get_names(self) -> List[str]:
         return [p.name for p in self.parameters]
 

@@ -107,22 +107,32 @@ def render_sidebar():
     with st.sidebar:
         render_login_sidebar()
 
-        # --- Manage Configurations (Load) ---
+        # --- Manage Configurations (Load / Delete) ---
         if group.parameters:
             with st.expander("📂 Manage Configurations", expanded=False):
                 names = group.get_names()
-                selected_load = st.selectbox("Select to Load", options=names, key="load_selector")
+                selected_config = st.selectbox("Select Configuration", options=names, key="config_manager_selector")
                 
-                if st.button("Load Configuration", width='stretch'):
-                    param_to_load = group.get_parameter_by_name(selected_load)
-                    if param_to_load:
-                        load_parameter_to_session_state(param_to_load)
-                        # Set the save name to the loaded name so Overwrite works immediately
-                        # st.text_input uses key 'save_config_name' logic below? 
-                        # We cannot set widget value easily if key is used, unless we use key in state.
-                        # Let's verify how save name is rendered below.
-                        st.session_state['config_name_input'] = param_to_load.name
-                        st.rerun()
+                col_load, col_del = st.columns(2)
+                
+                with col_load:
+                    if st.button("Load", key="btn_load_config", use_container_width=True):
+                        param_to_load = group.get_parameter_by_name(selected_config)
+                        if param_to_load:
+                            load_parameter_to_session_state(param_to_load)
+                            # Set the save name to the loaded name so Overwrite works immediately
+                            st.session_state['config_name_input'] = param_to_load.name
+                            st.rerun()
+                
+                with col_del:
+                    # Use type="primary" to indicate a destructive/important action or styling preference
+                    if st.button("Delete", key="btn_del_config", type="primary", use_container_width=True):
+                        deleted = group.delete_parameter(selected_config)
+                        if deleted:
+                            st.success(f"Deleted '{selected_config}'")
+                            st.rerun()
+                        else:
+                            st.error("Could not find configuration to delete.")
 
         st.header("Design Inputs")
         
