@@ -223,14 +223,14 @@ def render_anchor_geometry_and_loads():
         st.subheader("Check box for unbounded (∞) edges")
         c1, c2 = st.columns(2)
         with c1:
-            cx_neg = render_edge_input("Left (-X)", "cx_neg")
-            cy_neg = render_edge_input("Bottom (-Y)", "cy_neg")
+            cx_neg = render_edge_input("(-X)", "cx_neg")
+            cy_neg = render_edge_input("(-Y)", "cy_neg")
         with c2:
-            cx_pos = render_edge_input("Right (+X)", "cx_pos")
-            cy_pos = render_edge_input("Top (+Y)", "cy_pos")
+            cx_pos = render_edge_input("(+X)", "cx_pos")
+            cy_pos = render_edge_input("(+Y)", "cy_pos")
 
         # --- 5. Anchor Position ---
-        st.markdown("##### Installation Position")
+        st.header("Installation Position")
         pos_label = st.selectbox(
             "Anchor Position",
             options=[p.value for p in AnchorPosition],
