@@ -105,10 +105,9 @@ def render_sidebar():
     group: ParameterGroup = st.session_state['parameter_group']
 
     with st.sidebar:
+        
         render_login_sidebar()
         
-        
-
         # --- Manage Configurations (Load / Delete) ---
         if group.parameters:
             with st.expander("📂 Manage Configurations", expanded=False):
@@ -141,12 +140,10 @@ def render_sidebar():
         geo_load_inputs = render_anchor_geometry_and_loads()
 
         df_catalog = load_anchor_catalog()
-        
-        render_concrete_properties()        
-        
-        # 3. Anchor Selection (Returns Series)
         anchor_data = render_anchor_selector(df_catalog)
         
+        render_concrete_properties()        
+
         # Store essential data in session state for the main page to access
         st.session_state['geo_inputs'] = geo_load_inputs
         st.session_state['anchor_data_selected'] = anchor_data
