@@ -16,6 +16,7 @@ def render_login_sidebar(
             if st.button("Log in", type="primary", width='stretch'):
                 st.login(provider)
             st.caption(subtitle)
+            st.stop()
         else:
             u = current_user()
 
