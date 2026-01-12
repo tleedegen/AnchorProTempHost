@@ -102,150 +102,152 @@ def render_anchor_geometry_and_loads():
     Combined function to render Anchor Geometry and Load inputs.
     Allows toggling between Global Loads (Rigid Plate) and Individual Anchor Loads.
     """
-    st.subheader("Anchor Geometry & Loads")
+    with st.expander("Anchor Geometry & Loads", expanded=True):
 
-    # --- Load Distribution Mode ---
-    load_mode = st.radio(
-        "Load Distribution Method",
-        options=["Rigid Plate (Global Loads)", "Individual Anchors (Direct Assignment)"],
-        index=0,
-        key="load_distribution_mode"
-    )
-    is_global_mode = load_mode == "Rigid Plate (Global Loads)"
+        st.subheader("Anchor Geometry & Loads")
 
-    # --- 1. Global Loads (Only visible in Rigid Plate Mode) ---
-    global_loads = {}
-    if is_global_mode:
-        st.markdown("##### Global Factored Loads")
-        st.caption("Loads applied at the center of the fixture.")
-        col1, col2 = st.columns(2)
-        with col1:
-            global_loads["N"] = st.number_input("Tension (+z) [lbs]", value=1000.0, step=100.0, key="load_N")
-            global_loads["Vx"] = st.number_input("Shear X (+x) [lbs]", value=500.0, step=100.0, key="load_Vx")
-            global_loads["Mx"] = st.number_input("Moment X (+mx) [lb-in]", value=0.0, step=1000.0, key="load_Mx")
-        with col2:
-            global_loads["T"] = st.number_input("Torsion (+mz) [lb-in]", value=0.0, step=1000.0, key="load_T")
-            global_loads["Vy"] = st.number_input("Shear Y (+y) [lbs]", value=0.0, step=100.0, key="load_Vy")
-            global_loads["My"] = st.number_input("Moment Y (+my) [lb-in]", value=0.0, step=1000.0, key="load_My")
-    else:
-        # Zero out global loads if in direct mode
-        global_loads = {k: 0.0 for k in ["N", "Vx", "Vy", "Mx", "My", "T"]}
+        # --- Load Distribution Mode ---
+        load_mode = st.radio(
+            "Load Distribution Method",
+            options=["Rigid Plate (Global Loads)", "Individual Anchors (Direct Assignment)"],
+            index=0,
+            key="load_distribution_mode"
+        )
+        is_global_mode = load_mode == "Rigid Plate (Global Loads)"
 
-    # --- 2. Anchor Table (Geometry + Loads if Direct) ---
-    st.markdown("##### Anchor Geometry & Forces")
-    
-    # Initialize session state for anchors table if needed
-    if 'anchor_table_df' not in st.session_state:
-        # Default 4-bolt pattern
-        st.session_state['anchor_table_df'] = pd.DataFrame({
-            "x": [-3.0, 3.0, -3.0, 3.0],
-            "y": [3.0, 3.0, -3.0, -3.0],
-            "Vx": [0.0, 0.0, 0.0, 0.0],
-            "Vy": [0.0, 0.0, 0.0, 0.0],
-            "N": [250.0, 250.0, 250.0, 250.0] # Default forces
-        })
+        # --- 1. Global Loads (Only visible in Rigid Plate Mode) ---
+        global_loads = {}
+        if is_global_mode:
+            st.markdown("##### Global Factored Loads")
+            st.caption("Loads applied at the center of the fixture.")
+            col1, col2 = st.columns(2)
+            with col1:
+                global_loads["N"] = st.number_input("Tension (+z) [lbs]", value=1000.0, step=100.0, key="load_N")
+                global_loads["Vx"] = st.number_input("Shear X (+x) [lbs]", value=500.0, step=100.0, key="load_Vx")
+                global_loads["Mx"] = st.number_input("Moment X (+mx) [lb-in]", value=0.0, step=1000.0, key="load_Mx")
+            with col2:
+                global_loads["T"] = st.number_input("Torsion (+mz) [lb-in]", value=0.0, step=1000.0, key="load_T")
+                global_loads["Vy"] = st.number_input("Shear Y (+y) [lbs]", value=0.0, step=100.0, key="load_Vy")
+                global_loads["My"] = st.number_input("Moment Y (+my) [lb-in]", value=0.0, step=1000.0, key="load_My")
+        else:
+            # Zero out global loads if in direct mode
+            global_loads = {k: 0.0 for k in ["N", "Vx", "Vy", "Mx", "My", "T"]}
 
-    # Prepare Column Configuration based on mode
-    column_config = {
-        "x": st.column_config.NumberColumn("X (in)", format="%.2f"),
-        "y": st.column_config.NumberColumn("Y (in)", format="%.2f"),
-    }
-    
-    # Determine which columns to show/hide/disable
-    df_to_show = st.session_state['anchor_table_df'].copy()
-    
-    if is_global_mode:
-        # In global mode, hide force columns or make them read-only/empty
-        # For simplicity, we just show Geometry to avoid confusion
-        df_to_show = df_to_show[['x', 'y']] 
-    else:
-        # In individual mode, show and format force columns
-        column_config.update({
-            "Vx": st.column_config.NumberColumn("Vx (lbs)", format="%.0f"),
-            "Vy": st.column_config.NumberColumn("Vy (lbs)", format="%.0f"),
-            "N": st.column_config.NumberColumn("N (lbs)", format="%.0f"),
-        })
+        # --- 2. Anchor Table (Geometry + Loads if Direct) ---
+        st.markdown("##### Anchor Geometry & Forces")
+        
+        # Initialize session state for anchors table if needed
+        if 'anchor_table_df' not in st.session_state:
+            # Default 4-bolt pattern
+            st.session_state['anchor_table_df'] = pd.DataFrame({
+                "x": [-3.0, 3.0, -3.0, 3.0],
+                "y": [3.0, 3.0, -3.0, -3.0],
+                "Vx": [0.0, 0.0, 0.0, 0.0],
+                "Vy": [0.0, 0.0, 0.0, 0.0],
+                "N": [250.0, 250.0, 250.0, 250.0] # Default forces
+            })
 
-    # Render Data Editor
-    edited_df = st.data_editor(
-        df_to_show,
-        num_rows="dynamic",
-        key='anchor_editor_widget',
-        column_config=column_config
-    )
-    
-    # Sync back to session state (Merging updates)
-    if is_global_mode:
-        # If we only edited geometry, preserve the force columns in state (though they might be stale)
-        # or reset them. For safety, we update x/y and keep structure.
-        st.session_state['anchor_table_df'] = edited_df.join(
-            st.session_state['anchor_table_df'][['Vx', 'Vy', 'N']], how='left'
-        ).fillna(0.0)
-    else:
-        st.session_state['anchor_table_df'] = edited_df
+        # Prepare Column Configuration based on mode
+        column_config = {
+            "x": st.column_config.NumberColumn("X (in)", format="%.2f"),
+            "y": st.column_config.NumberColumn("Y (in)", format="%.2f"),
+        }
+        
+        # Determine which columns to show/hide/disable
+        df_to_show = st.session_state['anchor_table_df'].copy()
+        
+        if is_global_mode:
+            # In global mode, hide force columns or make them read-only/empty
+            # For simplicity, we just show Geometry to avoid confusion
+            df_to_show = df_to_show[['x', 'y']] 
+        else:
+            # In individual mode, show and format force columns
+            column_config.update({
+                "Vx": st.column_config.NumberColumn("Vx (lbs)", format="%.0f"),
+                "Vy": st.column_config.NumberColumn("Vy (lbs)", format="%.0f"),
+                "N": st.column_config.NumberColumn("N (lbs)", format="%.0f"),
+            })
 
-    # Extract Data for Returns
-    full_df = st.session_state['anchor_table_df']
-    xy_anchors = full_df[['x', 'y']].to_numpy()
-    
-    # If individual mode, extract forces array (N, Vx, Vy)
-    if not is_global_mode:
-        # Create (n, 3) array [N, Vx, Vy]
-        # Note: The dataframe has Vx, Vy, N. We usually pass [N, Vx, Vy] or similar.
-        # Let's standardize on [N, Vx, Vy] for internal processing
-        individual_forces = full_df[['N', 'Vx', 'Vy']].to_numpy()
-    else:
-        individual_forces = None
+        # Render Data Editor
+        edited_df = st.data_editor(
+            df_to_show,
+            num_rows="dynamic",
+            key='anchor_editor_widget',
+            column_config=column_config
+        )
+        
+        # Sync back to session state (Merging updates)
+        if is_global_mode:
+            # If we only edited geometry, preserve the force columns in state (though they might be stale)
+            # or reset them. For safety, we update x/y and keep structure.
+            st.session_state['anchor_table_df'] = edited_df.join(
+                st.session_state['anchor_table_df'][['Vx', 'Vy', 'N']], how='left'
+            ).fillna(0.0)
+        else:
+            st.session_state['anchor_table_df'] = edited_df
 
-    # --- 3. Fixture Dimensions ---
-    st.markdown("##### Fixture Dimensions")
-    col_dims = st.columns(2)
-    with col_dims[0]:
-        Bx = st.number_input("Fixture Width (Bx) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_Bx")
-    with col_dims[1]:
-        By = st.number_input("Fixture Height (By) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_By")
+        # Extract Data for Returns
+        full_df = st.session_state['anchor_table_df']
+        xy_anchors = full_df[['x', 'y']].to_numpy()
+        
+        # If individual mode, extract forces array (N, Vx, Vy)
+        if not is_global_mode:
+            # Create (n, 3) array [N, Vx, Vy]
+            # Note: The dataframe has Vx, Vy, N. We usually pass [N, Vx, Vy] or similar.
+            # Let's standardize on [N, Vx, Vy] for internal processing
+            individual_forces = full_df[['N', 'Vx', 'Vy']].to_numpy()
+        else:
+            individual_forces = None
 
-    # --- 4. Edge Distances ---
-    st.markdown("##### Concrete Edge Distances")
-    # Helper function (Same as before)
-    def render_edge_input(label, key_suffix):
-        col_check, col_val = st.columns([0.4, 0.6])
-        with col_check:
-            is_inf = st.checkbox(f"Unbounded {label}", value=True, key=f"inf_{key_suffix}")
-        with col_val:
-            if is_inf:
-                st.text_input(f"Dist. {label}", value="∞", disabled=True, label_visibility="collapsed", key=f"disp_{key_suffix}")
-                return np.inf
-            else:
-                return st.number_input(f"Distance {label}", min_value=0.0, value=12.0, step=1.0, label_visibility="collapsed", key=f"val_{key_suffix}")
+        # --- 3. Fixture Dimensions ---
+        st.markdown("##### Fixture Dimensions")
+        col_dims = st.columns(2)
+        with col_dims[0]:
+            Bx = st.number_input("Fixture Width (Bx) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_Bx")
+        with col_dims[1]:
+            By = st.number_input("Fixture Height (By) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_By")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Left & Bottom**")
-        cx_neg = render_edge_input("Left (-X)", "cx_neg")
-        cy_neg = render_edge_input("Bottom (-Y)", "cy_neg")
-    with c2:
-        st.markdown("**Right & Top**")
-        cx_pos = render_edge_input("Right (+X)", "cx_pos")
-        cy_pos = render_edge_input("Top (+Y)", "cy_pos")
+        # --- 4. Edge Distances ---
+        st.markdown("##### Concrete Edge Distances")
+        # Helper function (Same as before)
+        def render_edge_input(label, key_suffix):
+            col_check, col_val = st.columns([0.4, 0.6])
+            with col_check:
+                is_inf = st.checkbox(f"Unbounded {label}", value=True, key=f"inf_{key_suffix}", help="Check for infinite edge distance.")
+            with col_val:
+                if is_inf:
+                    st.text_input(f"Dist. {label}", value="∞", disabled=True, label_visibility="collapsed", key=f"disp_{key_suffix}")
+                    return np.inf
+                else:
+                    return st.number_input(f"Distance {label}", min_value=0.0, value=12.0, step=1.0, label_visibility="collapsed", key=f"val_{key_suffix}")
 
-    # --- 5. Anchor Position ---
-    st.markdown("##### Installation Position")
-    pos_label = st.selectbox(
-        "Anchor Position",
-        options=[p.value for p in AnchorPosition],
-        index=0,
-        key="geo_anchor_pos"
-    )
-    anchor_position = next(p for p in AnchorPosition if p.value == pos_label)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Left & Bottom**")
+            cx_neg = render_edge_input("Left (-X)", "cx_neg")
+            cy_neg = render_edge_input("Bottom (-Y)", "cy_neg")
+        with c2:
+            st.markdown("**Right & Top**")
+            cx_pos = render_edge_input("Right (+X)", "cx_pos")
+            cy_pos = render_edge_input("Top (+Y)", "cy_pos")
 
-    return {
-        "load_mode": "Global" if is_global_mode else "Individual",
-        "global_loads": global_loads,
-        "individual_forces": individual_forces,
-        "xy_anchors": xy_anchors,
-        "Bx": Bx, "By": By,
-        "cx_neg": cx_neg, "cx_pos": cx_pos,
-        "cy_neg": cy_neg, "cy_pos": cy_pos,
-        "anchor_position": anchor_position
-    }
+        # --- 5. Anchor Position ---
+        st.markdown("##### Installation Position")
+        pos_label = st.selectbox(
+            "Anchor Position",
+            options=[p.value for p in AnchorPosition],
+            index=0,
+            key="geo_anchor_pos"
+        )
+        anchor_position = next(p for p in AnchorPosition if p.value == pos_label)
+
+        return {
+            "load_mode": "Global" if is_global_mode else "Individual",
+            "global_loads": global_loads,
+            "individual_forces": individual_forces,
+            "xy_anchors": xy_anchors,
+            "Bx": Bx, "By": By,
+            "cx_neg": cx_neg, "cx_pos": cx_pos,
+            "cy_neg": cy_neg, "cy_pos": cy_pos,
+            "anchor_position": anchor_position
+        }
