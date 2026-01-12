@@ -106,6 +106,8 @@ def render_sidebar():
 
     with st.sidebar:
         render_login_sidebar()
+        
+        
 
         # --- Manage Configurations (Load / Delete) ---
         if group.parameters:
@@ -135,15 +137,14 @@ def render_sidebar():
                             st.error("Could not find configuration to delete.")
 
         st.header("Design Inputs")
-        
-        # 1. Properties (Writes directly to session_state keys)
-        render_concrete_properties()
-        
-        # 2. Geometry AND Loads (Unified)
+
         geo_load_inputs = render_anchor_geometry_and_loads()
+
+        df_catalog = load_anchor_catalog()
+        
+        render_concrete_properties()        
         
         # 3. Anchor Selection (Returns Series)
-        df_catalog = load_anchor_catalog()
         anchor_data = render_anchor_selector(df_catalog)
         
         # Store essential data in session state for the main page to access
