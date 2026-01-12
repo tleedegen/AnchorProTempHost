@@ -91,56 +91,57 @@ def render_anchor_selector(df_catalog: pd.DataFrame):
     Renders a selectbox to pick an anchor from the provided DataFrame.
     Returns the row (pd.Series) corresponding to the selected anchor.
     """
-    st.subheader("Anchor Selection")
-    
-    if df_catalog is None or df_catalog.empty:
-        st.error("Anchor catalog not found.")
+    with st.expander("Anchor Selection", expanded=True):
+        st.subheader("Anchor Selection")
+        
+        if df_catalog is None or df_catalog.empty:
+            st.error("Anchor catalog not found.")
+            return None
+        
+        # --- Manufacturer Filter ---
+        manufacturer_options = ["All"]
+        if 'manufacturer' in df_catalog.columns:
+            unique_mfrs = sorted(df_catalog['manufacturer'].dropna().unique().tolist())
+            manufacturer_options.extend(unique_mfrs)
+
+        selected_mfr = st.selectbox(
+            "Manufacturer",
+            options=manufacturer_options,
+            index=0,
+            key="selected_manufacturer_filter"
+        )
+
+        # Filter the catalog based on selection
+        if selected_mfr != "All":
+            df_catalog = df_catalog[df_catalog['manufacturer'] == selected_mfr]
+
+        # --- Anchor Product Selection ---
+        if df_catalog.empty:
+            st.warning(f"No anchors found for manufacturer: {selected_mfr}")
+            return None
+
+        anchor_ids = df_catalog['anchor_id'].unique().tolist()
+        
+        selected_id = st.selectbox(
+            "Select Anchor Product",
+            options=anchor_ids,
+            key="selected_anchor_id"
+        )
+        
+        # Return the row data for the selected anchor
+        if selected_id:
+            matching_rows = df_catalog[df_catalog['anchor_id'] == selected_id]
+            if not matching_rows.empty:
+                anchor_row = matching_rows.iloc[0]
+                
+                # --- Preview Button ---
+                # Using columns to align the button nicely if needed, or just placing it below
+                if st.button("Preview Anchor Parameters", icon="🔍", use_container_width=True):
+                    preview_anchor_parameters(anchor_row)
+                
+                return anchor_row
+
         return None
-    
-    # --- Manufacturer Filter ---
-    manufacturer_options = ["All"]
-    if 'manufacturer' in df_catalog.columns:
-        unique_mfrs = sorted(df_catalog['manufacturer'].dropna().unique().tolist())
-        manufacturer_options.extend(unique_mfrs)
-
-    selected_mfr = st.selectbox(
-        "Manufacturer",
-        options=manufacturer_options,
-        index=0,
-        key="selected_manufacturer_filter"
-    )
-
-    # Filter the catalog based on selection
-    if selected_mfr != "All":
-        df_catalog = df_catalog[df_catalog['manufacturer'] == selected_mfr]
-
-    # --- Anchor Product Selection ---
-    if df_catalog.empty:
-        st.warning(f"No anchors found for manufacturer: {selected_mfr}")
-        return None
-
-    anchor_ids = df_catalog['anchor_id'].unique().tolist()
-    
-    selected_id = st.selectbox(
-        "Select Anchor Product",
-        options=anchor_ids,
-        key="selected_anchor_id"
-    )
-    
-    # Return the row data for the selected anchor
-    if selected_id:
-        matching_rows = df_catalog[df_catalog['anchor_id'] == selected_id]
-        if not matching_rows.empty:
-            anchor_row = matching_rows.iloc[0]
-            
-            # --- Preview Button ---
-            # Using columns to align the button nicely if needed, or just placing it below
-            if st.button("Preview Anchor Parameters", icon="🔍", use_container_width=True):
-                preview_anchor_parameters(anchor_row)
-            
-            return anchor_row
-
-    return None
 
 # ... [Keep render_anchor_geometry_and_loads as it is] ...
 
