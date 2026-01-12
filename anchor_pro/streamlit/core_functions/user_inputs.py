@@ -200,7 +200,7 @@ def render_anchor_geometry_and_loads():
             individual_forces = None
 
         # --- 3. Fixture Dimensions ---
-        st.header("##### Fixture Dimensions")
+        st.header("Fixture Dimensions")
         col_dims = st.columns(2)
         with col_dims[0]:
             Bx = st.number_input("Fixture Width (Bx) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_Bx")
@@ -208,26 +208,24 @@ def render_anchor_geometry_and_loads():
             By = st.number_input("Fixture Height (By) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_By")
 
         # --- 4. Edge Distances ---
-        st.markdown("##### Concrete Edge Distances")
+        st.header("Concrete Edge Distances")
         # Helper function (Same as before)
         def render_edge_input(label, key_suffix):
             col_check, col_val = st.columns([0.4, 0.6])
             with col_check:
-                is_inf = st.checkbox(f"", value=True, key=f"inf_{key_suffix}", help=f"Unbounded {label}", label_visibility="visible")
+                is_inf = st.checkbox(f"{label}", value=True, key=f"inf_{key_suffix}", help=f"Unbounded {label}", label_visibility="visible")
             with col_val:
                 if is_inf:
                     st.text_input(f"Dist. {label}", value="∞", disabled=True, label_visibility="collapsed", key=f"disp_{key_suffix}")
                     return np.inf
                 else:
                     return st.number_input(f"Distance {label}", min_value=0.0, value=12.0, step=1.0, label_visibility="collapsed", key=f"val_{key_suffix}")
-
+        st.subheader("Check box for unbounded (∞) edges")
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("**Left & Bottom**")
             cx_neg = render_edge_input("Left (-X)", "cx_neg")
             cy_neg = render_edge_input("Bottom (-Y)", "cy_neg")
         with c2:
-            st.markdown("**Right & Top**")
             cx_pos = render_edge_input("Right (+X)", "cx_pos")
             cy_pos = render_edge_input("Top (+Y)", "cy_pos")
 
