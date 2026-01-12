@@ -213,7 +213,7 @@ def render_anchor_geometry_and_loads():
         def render_edge_input(label, key_suffix):
             col_check, col_val = st.columns([0.4, 0.6])
             with col_check:
-                is_inf = st.checkbox(f"Unbounded {label}", value=True, key=f"inf_{key_suffix}", help="Check for infinite edge distance.")
+                is_inf = st.checkbox(f"Unbounded {label}", value=True, key=f"inf_{key_suffix}", help="Check for infinite edge distance.", label_visibility="visible")
             with col_val:
                 if is_inf:
                     st.text_input(f"Dist. {label}", value="∞", disabled=True, label_visibility="collapsed", key=f"disp_{key_suffix}")
