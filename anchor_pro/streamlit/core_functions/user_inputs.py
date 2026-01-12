@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from anchor_pro.elements.concrete_anchors import Profiles, AnchorPosition
 
+# ... [Keep render_concrete_properties as it is] ...
+
 def render_concrete_properties():
     """
     Renders Streamlit widgets for selecting concrete properties.
@@ -73,6 +75,17 @@ def render_concrete_properties():
             key='poisson_ratio'
         )
 
+@st.dialog("Anchor Parameters Preview")
+def preview_anchor_parameters(anchor_data: pd.Series):
+    """
+    Modal dialog to display all parameters for the selected anchor.
+    """
+    st.caption(f"Product: {anchor_data.get('product', 'Unknown')}")
+    st.caption(f"Anchor ID: {anchor_data.get('anchor_id', 'Unknown')}")
+    
+    # Clean up display by converting Series to DataFrame for better viewing
+    st.dataframe(anchor_data, height=500, use_container_width=True)
+
 def render_anchor_selector(df_catalog: pd.DataFrame):
     """
     Renders a selectbox to pick an anchor from the provided DataFrame.
@@ -85,10 +98,8 @@ def render_anchor_selector(df_catalog: pd.DataFrame):
         return None
     
     # --- Manufacturer Filter ---
-    # Default to "All" to show everything initially, or limit to known brands
     manufacturer_options = ["All"]
     if 'manufacturer' in df_catalog.columns:
-        # Get unique manufacturers from data (e.g., HILTI, Dewalt, Simpson)
         unique_mfrs = sorted(df_catalog['manufacturer'].dropna().unique().tolist())
         manufacturer_options.extend(unique_mfrs)
 
@@ -118,11 +129,17 @@ def render_anchor_selector(df_catalog: pd.DataFrame):
     
     # Return the row data for the selected anchor
     if selected_id:
-        # Ensure we return a single row Series
         matching_rows = df_catalog[df_catalog['anchor_id'] == selected_id]
         if not matching_rows.empty:
-            return matching_rows.iloc[0]
+            anchor_row = matching_rows.iloc[0]
             
+            # --- Preview Button ---
+            # Using columns to align the button nicely if needed, or just placing it below
+            if st.button("Preview Anchor Parameters", icon="🔍", use_container_width=True):
+                preview_anchor_parameters(anchor_row)
+            
+            return anchor_row
+
     return None
 
 # ... [Keep render_anchor_geometry_and_loads as it is] ...
