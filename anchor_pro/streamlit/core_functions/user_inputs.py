@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 from anchor_pro.elements.concrete_anchors import Profiles, AnchorPosition
 
-# ... [Keep render_concrete_properties and render_anchor_selector as they are] ...
-
 def render_concrete_properties():
     """
     Renders Streamlit widgets for selecting concrete properties.
@@ -86,6 +84,30 @@ def render_anchor_selector(df_catalog: pd.DataFrame):
         st.error("Anchor catalog not found.")
         return None
     
+    # --- Manufacturer Filter ---
+    # Default to "All" to show everything initially, or limit to known brands
+    manufacturer_options = ["All"]
+    if 'manufacturer' in df_catalog.columns:
+        # Get unique manufacturers from data (e.g., HILTI, Dewalt, Simpson)
+        unique_mfrs = sorted(df_catalog['manufacturer'].dropna().unique().tolist())
+        manufacturer_options.extend(unique_mfrs)
+
+    selected_mfr = st.selectbox(
+        "Manufacturer",
+        options=manufacturer_options,
+        index=0,
+        key="selected_manufacturer_filter"
+    )
+
+    # Filter the catalog based on selection
+    if selected_mfr != "All":
+        df_catalog = df_catalog[df_catalog['manufacturer'] == selected_mfr]
+
+    # --- Anchor Product Selection ---
+    if df_catalog.empty:
+        st.warning(f"No anchors found for manufacturer: {selected_mfr}")
+        return None
+
     anchor_ids = df_catalog['anchor_id'].unique().tolist()
     
     selected_id = st.selectbox(
@@ -96,8 +118,14 @@ def render_anchor_selector(df_catalog: pd.DataFrame):
     
     # Return the row data for the selected anchor
     if selected_id:
-        return df_catalog[df_catalog['anchor_id'] == selected_id].iloc[0]
+        # Ensure we return a single row Series
+        matching_rows = df_catalog[df_catalog['anchor_id'] == selected_id]
+        if not matching_rows.empty:
+            return matching_rows.iloc[0]
+            
     return None
+
+# ... [Keep render_anchor_geometry_and_loads as it is] ...
 
 def render_anchor_geometry_and_loads():
     """
