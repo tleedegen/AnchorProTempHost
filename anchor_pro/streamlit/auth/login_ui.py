@@ -1,7 +1,7 @@
 """Logging/Logout UI"""
 
 import streamlit as st
-from .simple_auth import is_authenticated, current_user, logout_button
+from .simple_auth import ensure_login, is_authenticated, current_user, logout_button
 
 def render_login_sidebar(
     title: str = "Account",
@@ -12,25 +12,21 @@ def render_login_sidebar(
     with st.sidebar:
         st.markdown(f"### {title}")
 
-        if not is_authenticated():  
-            if st.button("Log in", type="primary", width='stretch'):
-                st.login(provider)
-            st.caption(subtitle)
-            st.stop()
-        else:
-            u = current_user()
+        ensure_login()
 
-            # Compact user chip
-            row = st.container()
-            with row:
-                c1, c2 = st.columns([1, 3])
-                with c1:
-                    avatar = u.get("picture")
-                    if avatar:
-                        st.image(avatar, width=32)
-                with c2:
-                    st.markdown(f"**{u.get('name') or 'User'}**")
-                    if u.get("email"):
-                        st.caption(u["email"])
+        u = current_user()
 
-            logout_button("Log out")  
+        # Compact user chip
+        row = st.container()
+        with row:
+            c1, c2 = st.columns([1, 3])
+            with c1:
+                avatar = u.get("picture")
+                if avatar:
+                    st.image(avatar, width=32)
+            with c2:
+                st.markdown(f"**{u.get('name') or 'User'}**")
+                if u.get("email"):
+                    st.caption(u["email"])
+
+        logout_button("Log out")  
