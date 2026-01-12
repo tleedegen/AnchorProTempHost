@@ -200,7 +200,7 @@ def render_anchor_geometry_and_loads():
             individual_forces = None
 
         # --- 3. Fixture Dimensions ---
-        st.markdown("##### Fixture Dimensions")
+        st.header("##### Fixture Dimensions")
         col_dims = st.columns(2)
         with col_dims[0]:
             Bx = st.number_input("Fixture Width (Bx) [in]", min_value=0.0, value=10.0, step=0.5, key="geo_Bx")
